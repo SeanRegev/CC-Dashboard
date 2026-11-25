@@ -74,10 +74,6 @@ class AgentTerminal extends EventEmitter {
       cwd: spec.cwd,
       env: /** @type {any} */ (spec.env),
       useConpty: true,
-      // The ConPTY that ships with node-pty (conpty.dll + OpenConsole.exe, as in Windows Terminal),
-      // not the system's: the conhost in Windows 10 / Server 2022 repaints on resize but never
-      // tells the program, so claude would keep drawing at its start size. Ignored off Windows.
-      useConptyDll: true,
     });
     this.pid = this.proc.pid;
     this.proc.onData((data) => {

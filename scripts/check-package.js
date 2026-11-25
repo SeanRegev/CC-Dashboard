@@ -80,7 +80,7 @@ function main() {
   // prebuilds/<platform>-<arch> (shipped in the package; what Windows uses).
   const nativeDirs = [path.join(ptyDir, 'build', 'Release'), path.join(ptyDir, 'prebuilds', `${process.platform}-${process.arch}`)];
   const natives = process.platform === 'win32'
-    ? ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll', path.join('conpty', 'conpty.dll'), path.join('conpty', 'OpenConsole.exe')]
+    ? ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll']
     : ['pty.node'];
   for (const f of natives) {
     const found = nativeDirs.map((d) => path.join(d, f)).find((p) => fs.existsSync(p));
@@ -111,7 +111,6 @@ function probe(exe, unpacked) {
     console.log('ELECTRON', process.versions.electron, 'ABI', process.versions.modules, 'PROTOCOL', protocol.PROTOCOL_VERSION);
     const term = pty.spawn(process.execPath, ['-e', 'console.log("PTY_" + "OK")'], {
       cols: 80, rows: 24, cwd: process.cwd(), env: process.env,
-      useConpty: true, useConptyDll: true, // as the core does (packages/core/src/terminal.js)
     });
     let out = '';
     term.onData((d) => { out += d; });
