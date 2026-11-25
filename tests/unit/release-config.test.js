@@ -122,7 +122,9 @@ test('node-pty is a Node-API build with Windows prebuilds, so packaging needs no
   assert.ok(major > 1 || (major === 1 && minor >= 1), `node-pty ${spec}: 1.0 and older are not Node-API and need compiling for Electron`);
   const ptyPkg = JSON.parse(read('node_modules/node-pty/package.json'));
   assert.ok(ptyPkg.dependencies && ptyPkg.dependencies['node-addon-api'], 'installed node-pty is built on node-addon-api');
-  for (const f of ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll']) {
+  // conpty/ is the bundled ConPTY the core uses on Windows (useConptyDll), so resizes reach claude
+  for (const f of ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) {
     assert.ok(fs.existsSync(path.join(REPO, 'node_modules', 'node-pty', 'prebuilds', 'win32-x64', f)), `prebuilds/win32-x64/${f} ships with node-pty`);
   }
+  assert.match(read('packages/core/src/terminal.js'), /useConptyDll: true/, 'the core uses the bundled ConPTY on Windows');
 });
