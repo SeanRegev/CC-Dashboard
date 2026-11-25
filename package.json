@@ -9,7 +9,7 @@
   "scripts": {
     "core": "node packages/core/src/index.js",
     "app": "electron .",
-    "test": "node --test tests/unit/ tests/core/",
+    "test": "node --test --test-force-exit --test-reporter=spec \"tests/unit/**/*.test.js\" \"tests/core/**/*.test.js\"",
     "test:e2e": "xvfb-run -a node --test tests/e2e/",
     "dist:win": "electron-builder --win",
     "postinstall": "node scripts/postinstall.js"

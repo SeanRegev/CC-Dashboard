@@ -41,7 +41,7 @@ class RpcError extends Error {
 
 /** @param {string} text */
 function slug(text) {
-  return String(text || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return String(text || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
 
 function envNumber(env, name, fallback) {
@@ -371,7 +371,9 @@ class Core extends EventEmitter {
     // Started from inside a Claude Code session (development): don't look like a nested session.
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
-    // ELECTRON_RUN_AS_NODE is kept: in the installed app hook.js runs on Electron's Node.
+    // The installed core runs on Electron with ELECTRON_RUN_AS_NODE=1. Claude must not inherit
+    // it (it would break any Electron app Claude starts); the hook launcher sets it for hook.js.
+    delete env.ELECTRON_RUN_AS_NODE;
     env.CC_AGENT_ID = agent.id;
     env.CC_CORE_URL = this.coreUrl;
     env.CC_TOKEN = this.token;

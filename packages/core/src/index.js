@@ -18,7 +18,12 @@ const { createServer } = require('./server');
 const { writeFileAtomic, readJson } = require('./store');
 
 const VERSION = (() => {
-  try { return require('../../../package.json').version || '0.0.0'; } catch { return '0.0.0'; }
+  // In the installed app this file is in app.asar.unpacked/, while package.json is inside app.asar.
+  const own = path.join(__dirname, '..', '..', '..', 'package.json');
+  for (const file of [own, own.replace(/app\.asar\.unpacked/, 'app.asar')]) {
+    try { return require(file).version || '0.0.0'; } catch { /* try the next */ }
+  }
+  return '0.0.0';
 })();
 
 /** @param {number} pid */
