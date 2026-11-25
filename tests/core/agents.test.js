@@ -116,7 +116,9 @@ test('resize changes the terminal size the agent sees', async (t) => {
   await core.waitStatus(agent.id, (x) => x.state === 'idle');
   assert.equal(await core.client.call('agents.resize', { id: agent.id, cols: 101, rows: 37 }), true);
   await core.client.call('agents.send', { id: agent.id, text: 'size' });
-  await waitFor(async () => (await core.replay(agent.id)).includes('SIZE 101x37'), { what: 'new size' });
+  let seen = '';
+  await waitFor(async () => (seen = await core.replay(agent.id)).includes('SIZE 101x37'), { what: 'new size' })
+    .catch((e) => { throw new Error(`${e.message}; the agent printed: ${JSON.stringify(seen.slice(-300))}`); });
   await assert.rejects(core.client.call('agents.resize', { id: agent.id, cols: 0, rows: 10 }), { code: 'bad_request' });
   await assert.rejects(core.client.call('agents.resize', { id: agent.id, cols: 'x', rows: 10 }), { code: 'bad_request' });
 });

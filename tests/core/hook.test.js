@@ -42,7 +42,9 @@ test('hook.js exits 0 silently when the core is down', async () => {
 
 test('hook.js gives up within ~2 s when the core hangs', async (t) => {
   const sockets = [];
-  const server = net.createServer((s) => sockets.push(s)); // accepts, never answers
+  // Accepts, never answers. When hook.js gives up and exits, Windows resets the connection:
+  // that ECONNRESET is expected here, not a test failure.
+  const server = net.createServer((s) => { s.on('error', () => {}); sockets.push(s); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   t.after(() => { sockets.forEach((s) => s.destroy()); server.close(); });
   const r = await runHook({ CC_AGENT_ID: 'a', CC_CORE_URL: `http://127.0.0.1:${/** @type {any} */ (server.address()).port}`, CC_TOKEN: 't' });
