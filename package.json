@@ -1,0 +1,32 @@
+{
+  "name": "cc-dashboard",
+  "productName": "CC-Dashboard",
+  "version": "0.1.0",
+  "description": "All your Claude Code sessions in one desktop window.",
+  "main": "packages/app/src/main/main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "core": "node packages/core/src/index.js",
+    "app": "electron .",
+    "test": "node --test --test-force-exit --test-reporter=spec \"tests/unit/**/*.test.js\" \"tests/core/**/*.test.js\"",
+    "test:e2e": "node --test --test-force-exit --test-reporter=spec --test-concurrency=1 \"tests/e2e/**/*.test.js\"",
+    "dist:win": "electron-builder --win nsis portable --publish never",
+    "postinstall": "node scripts/postinstall.js",
+    "dist:dir": "electron-builder --dir --publish never",
+    "icon": "node scripts/make-icon.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/headless": "5.5.0",
+    "@xterm/xterm": "5.5.0",
+    "node-pty": "1.1.0",
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "js-yaml": "4.3.2",
+    "playwright-core": "1.63.0"
+  }
+}

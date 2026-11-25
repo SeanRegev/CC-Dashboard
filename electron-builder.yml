@@ -1,0 +1,82 @@
+# electron-builder configuration for CC-Dashboard.
+# CI builds the Windows installer with:  npx electron-builder --win nsis portable --publish never
+# See docs/RELEASE.md.
+appId: dev.ccdashboard.app
+productName: CC-Dashboard
+copyright: Copyright © CC-Dashboard contributors
+
+directories:
+  output: dist
+  buildResources: build
+
+# Entry point comes from package.json "main" (packages/app/src/main/main.js).
+# Only production dependencies end up in the package; electron-builder prunes devDependencies.
+files:
+  - package.json
+  - packages/**
+  - node_modules/**
+  # node-pty sources and build intermediates are not needed at run time
+  - "!node_modules/node-pty/{deps,src,scripts,typings}/**"
+  - "!node_modules/node-pty/build/Release/obj/**"
+  - "!node_modules/node-pty/build/Release/.deps/**"
+  - "!node_modules/node-pty/build/{Debug,deps}/**"
+  - "!node_modules/node-pty/lib/**/*.test.js"
+  - "!node_modules/node-pty/binding.gyp"
+  - "!**/*.{pdb,ilk,iobj,ipdb,map}"
+  - "!**/node_modules/nan/**"
+
+asar: true
+# The core runs as a separate process (the app's own exe with ELECTRON_RUN_AS_NODE=1) and is
+# started from disk, so the core, the shared contract and every runtime dependency the core
+# requires must live outside app.asar, in resources/app.asar.unpacked/.
+# node-pty in particular: its .node binaries and the conpty/winpty helpers (winpty-agent.exe,
+# winpty.dll; conpty.dll/OpenConsole.exe in newer node-pty) are loaded/executed from disk.
+asarUnpack:
+  - packages/core/**
+  - packages/shared/**
+  - node_modules/node-pty/**
+  - node_modules/ws/**
+  - node_modules/@xterm/headless/**
+
+# No native rebuild: node-pty 1.1 is a Node-API addon, so one binary loads in Node and in
+# Electron. On Windows it ships prebuilt binaries (prebuilds/win32-x64), so nothing is compiled;
+# rebuilding from source would only reintroduce the MSVC/node-gyp toolchain problems.
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - portable
+  # Unsigned for now: SmartScreen shows "Windows protected your PC" (More info -> Run anyway).
+  signAndEditExecutable: true
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: CC-Dashboard
+  uninstallDisplayName: CC-Dashboard
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
+
+linux:
+  icon: build/icon.png
+  category: Development
+  target:
+    - dir
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+mac:
+  icon: build/icon.png
+  category: public.app-category.developer-tools

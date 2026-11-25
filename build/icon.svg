@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- CC-Dashboard app icon (original artwork). Source for build/icon.png and build/icon.ico:
+       regenerate with `npm run icon` (scripts/make-icon.js). -->
+  <defs>
+    <clipPath id="win">
+      <rect x="196" y="252" width="632" height="520" rx="64"/>
+    </clipPath>
+  </defs>
+  <!-- tile -->
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="#141312"/>
+  <rect x="50" y="50" width="924" height="924" rx="206" fill="none" stroke="#2B2826" stroke-width="4"/>
+  <!-- sidebar (filled) -->
+  <rect x="196" y="252" width="196" height="520" fill="#E8805F" clip-path="url(#win)"/>
+  <!-- session rows in the sidebar -->
+  <rect x="240" y="320" width="108" height="40" rx="20" fill="#141312"/>
+  <rect x="240" y="400" width="108" height="40" rx="20" fill="#141312" opacity="0.55"/>
+  <rect x="240" y="480" width="108" height="40" rx="20" fill="#141312" opacity="0.55"/>
+  <!-- terminal window outline -->
+  <rect x="196" y="252" width="632" height="520" rx="64" fill="none" stroke="#E8805F" stroke-width="44"/>
+  <!-- prompt chevron and cursor -->
+  <polyline points="474,428 562,512 474,596" fill="none" stroke="#E8805F" stroke-width="48"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="600" y="568" width="140" height="48" rx="24" fill="#E8805F"/>
+</svg>

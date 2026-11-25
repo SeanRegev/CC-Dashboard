@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- xterm.js's DOM renderer writes <style> elements at runtime, hence style-src 'unsafe-inline'. Scripts: 'self' only. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>CC-Dashboard</title>
+  <link rel="stylesheet" href="../../../../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="styles.css">
+  <!-- UMD builds: they define globalThis.Terminal and globalThis.FitAddon -->
+  <script src="../../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar" id="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">CC-Dashboard</span>
+      </div>
+      <div class="crumb" id="crumb"></div>
+      <nav class="tabs" id="tabs" aria-label="Open agents"></nav>
+      <div class="top-actions" id="top-actions"></div>
+    </header>
+    <aside class="sidebar" id="sidebar" data-testid="sidebar" aria-label="Spaces and agents"></aside>
+    <main class="workspace" id="workspace"></main>
+  </div>
+  <div id="overlay-root"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
