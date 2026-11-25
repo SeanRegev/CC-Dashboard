@@ -538,7 +538,8 @@ input.input { height: 34px; }
 .check.disabled { color: var(--faint); }
 .check input { accent-color: var(--accent); margin: 0; }
 .soon { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); }
-.form-error { color: #F0968C; font-size: 12px; min-height: 16px; }
+.form-error { color: #F0968C; font-size: 12px; }
+.form-error:empty { display: none; }
 
 /* quick switcher */
 .quick-switcher { width: min(620px, calc(100vw - 48px)); overflow: hidden; }
@@ -547,12 +548,16 @@ input.input { height: 34px; }
 .qs-input::placeholder { color: #6E6761; }
 .qs-list { max-height: min(420px, 50vh); overflow-y: auto; padding: 6px; }
 .qs-item {
-  display: grid; grid-template-columns: 8px minmax(90px, auto) auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 8px minmax(0, 150px) 86px minmax(0, 1fr) auto; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: 8px; cursor: pointer;
 }
 .qs-item.sel { background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
 .qs-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-.qs-state { font-size: 11px; color: var(--faint); }
+.qs-state { font-size: 11px; font-weight: 600; color: var(--faint); padding-left: 2px; }
+.qs-state.st-working { color: var(--working); }
+.qs-state.st-idle { color: var(--idle); }
+.qs-state.st-starting { color: var(--starting); }
+.qs-item .needs-badge { justify-self: start; }
 .qs-activity { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qs-space { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
 .qs-empty { padding: 18px; color: var(--faint); text-align: center; }

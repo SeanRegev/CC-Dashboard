@@ -1,7 +1,7 @@
 // @ts-check
 /** Modal dialogs: new agent, quick switcher. Plus toasts. */
 import { h, icon, kbd } from './dom.js';
-import { filterAgents, describeActivity, suggestAgentName } from './logic.js';
+import { filterAgents, describeActivity, suggestAgentName, stateLabel } from './logic.js';
 
 const root = () => /** @type {HTMLElement} */ (document.getElementById('overlay-root'));
 
@@ -142,8 +142,8 @@ export function openQuickSwitcher(s, onPick) {
       const li = h('li', { class: `qs-item${i === sel ? ' sel' : ''}`, role: 'option', dataset: { agent: e.agent.id } },
         h('span', { class: `dot st-${st}` }),
         h('span', { class: 'qs-name' }, e.agent.name),
-        st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : h('span', { class: 'qs-state' }),
-        h('span', { class: 'qs-activity' }, describeActivity(e.status)),
+        st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : h('span', { class: `qs-state st-${st}` }, stateLabel(st)),
+        h('span', { class: 'qs-activity' }, describeActivity(e.status).replace(/^(Done|Stopped) · /, '')),
         h('span', { class: 'qs-space' }, (byId[e.agent.spaceId] || {}).name || e.agent.spaceId));
       li.addEventListener('mousemove', () => { if (sel !== i) { sel = i; render(); } });
       li.addEventListener('mousedown', (ev) => { ev.preventDefault(); pick(i); });

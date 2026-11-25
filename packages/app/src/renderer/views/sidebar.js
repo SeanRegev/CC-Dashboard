@@ -74,7 +74,7 @@ export function renderSidebar(root, s, act) {
         icon('plus'), h('span', null, 'New agent'), kbd(s.mod, 'T')),
       agents.length
         ? h('ul', { class: 'agent-list' }, cards)
-        : h('div', { class: 'sb-hint' }, space ? 'No agents in this space yet.' : 'Pick a space to see its agents.'),
+        : h('div', { class: 'sb-hint' }, space ? 'No agents in this space yet.' : s.spaces.length ? 'Pick a space to see its agents.' : 'No spaces yet.'),
     ),
 
     h('footer', { class: 'sb-foot' },
