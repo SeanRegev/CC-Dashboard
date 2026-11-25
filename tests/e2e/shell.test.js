@@ -58,8 +58,10 @@ test('opening an agent attaches a terminal that shows the replay', async () => {
   await until(() => mock.calls.some((c) => c.method === 'agents.resize' && c.params.id === 'docs-pass'));
   const size = await app.evaluate(`window.__cc.termSize('docs-pass')`);
   assert.ok(size.cols > 80 && size.rows > 20, JSON.stringify(size));
-  const rendered = await app.evaluate(`document.querySelector('.term-slot[data-agent="docs-pass"] .xterm-rows').textContent`);
-  assert.match(rendered, /README/);
+  // xterm paints the DOM rows on the next animation frame (and again after the resize), so wait for it
+  const rendered = () => app.evaluate(`document.querySelector('.term-slot[data-agent="docs-pass"] .xterm-rows')?.textContent || ''`);
+  await until(async () => /README/.test(await rendered())).catch(() => {});
+  assert.match(await rendered(), /README/);
 });
 
 test('typing reaches the core, and Ctrl+C reaches the terminal', async () => {
@@ -115,6 +117,26 @@ test('Ctrl+\\ splits into two panes, Ctrl+Tab and Ctrl+1 switch tabs', async () 
   await app.waitFor(`document.querySelectorAll('.pane').length === 1`);
 });
 
+test('a dialog opened in the same frame as a tab switch keeps the keyboard', async () => {
+  // Ctrl+<n> focuses the terminal on the next frame; Ctrl+K pressed before that frame must win,
+  // or what the user types into the quick switcher goes to the agent.
+  const snap = await app.evaluate('window.__cc.snapshot()');
+  const cur = snap.layout.panes[snap.layout.focused];
+  assert.equal(await focusTerm(cur), true);
+  const n = snap.tabs.indexOf(cur) + 1;
+  assert.ok(n > 0);
+  await app.evaluate(`(() => {
+    const key = (k, code) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, ctrlKey: true, bubbles: true, cancelable: true }));
+    key('${n}', 'Digit${n}');
+    key('k', 'KeyK');
+  })()`);
+  await app.waitFor(`document.querySelector('[data-modal="quick-switch"]')`);
+  await app.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 50))))');
+  assert.equal(await app.evaluate('document.activeElement && document.activeElement.id'), 'qs-input');
+  await app.press('Escape');
+  await app.waitFor(`!document.querySelector('[data-modal="quick-switch"]')`);
+});
+
 test('Ctrl+K quick switcher opens an agent from another space', async () => {
   await app.press('k', { ctrl: true });
   await app.waitFor(`document.querySelector('[data-modal="quick-switch"]')`);
@@ -142,6 +164,8 @@ test('after the core connection drops, the app reconnects and re-attaches termin
   mock.dropClients();
   await until(() => mock.calls.filter((c) => c.method === 'agents.attach' && c.params.id === 'etl-retry').length > attachesBefore);
   await app.waitFor(`window.__cc.snapshot().conn === 'open' && !document.querySelector('.conn-banner')`);
+  // reattach clears the screen at once; xterm parses the replay asynchronously, so wait for it
+  await until(async () => /retry policy/.test(await termText('etl-retry'))).catch(() => {});
   assert.match(await termText('etl-retry'), /retry policy/);
   // the replay was written once, not appended to the old screen
   const count = (await termText('etl-retry')).split('Add retries to the nightly ETL job').length - 1;

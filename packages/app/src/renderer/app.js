@@ -216,10 +216,16 @@ function selectTab(id) {
   focusTerminal();
 }
 
+/** Focus the focused pane's terminal on the next frame (after layout), unless a dialog opened in between. */
 function focusTerminal() {
-  const id = focusedId();
-  const v = id && S.views.get(id);
-  if (v) requestAnimationFrame(() => v.focus());
+  requestAnimationFrame(() => {
+    // A shortcut like Ctrl+K can open a dialog within the same frame; taking focus back would send
+    // what the user types into the dialog to the agent instead.
+    if (isModalOpen()) return;
+    const id = focusedId();
+    const v = id && S.views.get(id);
+    if (v) v.focus();
+  });
 }
 
 function doToggleSplit() {
