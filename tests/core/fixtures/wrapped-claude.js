@@ -12,6 +12,9 @@ const pick = (k) => (k in process.env ? process.env[k] : null);
 fs.appendFileSync(path.join(process.env.CC_HOME || '.', 'env.log'), JSON.stringify({
   CC_AGENT_ID: pick('CC_AGENT_ID'), CC_CORE_URL: pick('CC_CORE_URL'), CC_TOKEN: pick('CC_TOKEN'),
   ELECTRON_RUN_AS_NODE: pick('ELECTRON_RUN_AS_NODE'), CLAUDECODE: pick('CLAUDECODE'),
+  CLAUDE_CODE_CHILD_SESSION: pick('CLAUDE_CODE_CHILD_SESSION'), CLAUDE_CODE_SESSION_ID: pick('CLAUDE_CODE_SESSION_ID'),
+  CLAUDE_PID: pick('CLAUDE_PID'), CLAUDE_CODE_ENTRYPOINT: pick('CLAUDE_CODE_ENTRYPOINT'),
+  ANTHROPIC_API_KEY: pick('ANTHROPIC_API_KEY'), CLAUDE_CODE_USE_BEDROCK: pick('CLAUDE_CODE_USE_BEDROCK'),
 }) + '\n');
 /**
  * The terminal size right now. process.stdout.getWindowSize() is a cached value that Node refreshes

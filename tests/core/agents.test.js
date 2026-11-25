@@ -48,8 +48,11 @@ test('create agent: starting -> idle, with lastPrompt, files, counts, usage and 
   assert.equal(again.id, 'fix-bug-2');
 });
 
-test('agent env: CC_AGENT_ID / CC_CORE_URL / CC_TOKEN set; ELECTRON_RUN_AS_NODE and CLAUDECODE stripped', async (t) => {
-  const core = await startCore({ claude: WRAPPED, env: { ELECTRON_RUN_AS_NODE: '1', CLAUDECODE: '1' } });
+test('agent env: CC_AGENT_ID / CC_CORE_URL / CC_TOKEN set; ELECTRON_RUN_AS_NODE and a parent Claude session stripped, user settings kept', async (t) => {
+  const core = await startCore({ claude: WRAPPED, env: {
+    ELECTRON_RUN_AS_NODE: '1', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_SESSION_ID: 'parent', CLAUDE_PID: '123', CLAUDE_CODE_ENTRYPOINT: 'cli',
+    ANTHROPIC_API_KEY: 'sk-test', CLAUDE_CODE_USE_BEDROCK: '1',
+  } });
   t.after(() => core.dispose());
   const space = await core.space();
   const agent = await core.client.call('agents.create', { spaceId: space.id, name: 'a', prompt: 'x' });
@@ -59,6 +62,8 @@ test('agent env: CC_AGENT_ID / CC_CORE_URL / CC_TOKEN set; ELECTRON_RUN_AS_NODE 
   assert.deepEqual(env, {
     CC_AGENT_ID: agent.id, CC_CORE_URL: `http://127.0.0.1:${core.info.port}`, CC_TOKEN: core.info.token,
     ELECTRON_RUN_AS_NODE: null, CLAUDECODE: null,
+    CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_CODE_SESSION_ID: null, CLAUDE_PID: null, CLAUDE_CODE_ENTRYPOINT: null,
+    ANTHROPIC_API_KEY: 'sk-test', CLAUDE_CODE_USE_BEDROCK: '1',
   });
 });
 
