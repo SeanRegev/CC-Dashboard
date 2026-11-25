@@ -46,7 +46,7 @@ test('CI workflow: Windows and Linux jobs with pinned actions and the installer 
   assert.ok(ci.on && 'push' in ci.on && 'pull_request' in ci.on, 'runs on push and pull_request');
   const win = ci.jobs['test-windows'];
   const linux = ci.jobs['test-linux'];
-  assert.equal(win['runs-on'], 'windows-latest');
+  assert.equal(win['runs-on'], 'windows-2022', 'pinned: node-gyp 9.4.1 cannot find Visual Studio 2026 on windows-latest');
   assert.equal(linux['runs-on'], 'ubuntu-latest');
   const uses = [...win.steps, ...linux.steps].filter((s) => s.uses).map((s) => s.uses);
   for (const u of uses) assert.match(u, /@v\d+$/, `${u} is pinned to a major version`);

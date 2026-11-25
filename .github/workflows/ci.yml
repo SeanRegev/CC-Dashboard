@@ -24,7 +24,9 @@ env:
 jobs:
   test-windows:
     name: Windows - tests + installer
-    runs-on: windows-latest
+    # Pinned: windows-latest now ships Visual Studio 2026 (v18), which node-gyp 9.4.1
+    # (pulled in by electron-builder) does not recognise, so node-pty fails to compile.
+    runs-on: windows-2022
     timeout-minutes: 45
     steps:
       - name: Checkout
