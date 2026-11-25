@@ -6,7 +6,7 @@ Every push and pull request runs `.github/workflows/ci.yml` on GitHub Actions:
 
 | Job | Runner | Steps |
 |---|---|---|
-| **Windows - tests + installer** (`test-windows`) | `windows-2022` (pinned: has Visual Studio 2022, which node-gyp 9.4.1 supports), Node 22 | `npm ci` → `npm test` (unit tests + core tests: the real core runs `tests/fake-claude.js` in ConPTY) → `npm run test:e2e` (Electron app + core) → `npx electron-builder install-app-deps` (rebuild node-pty for Electron) → `npx electron-builder --win nsis portable --publish never` → `node scripts/check-package.js dist/win-unpacked` → upload `dist/*.exe` |
+| **Windows - tests + installer** (`test-windows`) | `windows-2022`, Node 22 | `npm ci` (node-pty installs from its prebuilt Windows binaries; nothing is compiled) → `npm test` (unit tests + core tests: the real core runs `tests/fake-claude.js` in ConPTY) → `npm run test:e2e` (Electron app + core) → `npx electron-builder --win nsis portable --publish never` → `node scripts/check-package.js dist/win-unpacked` → upload `dist/*.exe` |
 | **Linux - tests + e2e** (`test-linux`) | `ubuntu-latest`, Node 22 | `npm ci` → `npm test` → `xvfb-run -a npm run test:e2e` → `electron-builder --linux dir` + package check (validates the packaging config) → upload `test-results/` (screenshots, core logs) |
 
 `scripts/check-package.js` fails the build if the packaged app is missing files the installed core needs from
@@ -49,9 +49,8 @@ Packaging config: `electron-builder.yml`. Icon: `build/icon.svg` → `build/icon
 - `npm run test:e2e`: e2e tests (needs a display; on Linux run `xvfb-run -a npm run test:e2e`).
 - `npm run dist:win` (on Windows) or `npm run dist:dir` (unpacked app for the current OS), then
   `node scripts/check-package.js`.
-- **Careful:** packaging rebuilds `node_modules/node-pty` for Electron **in place** (if the rebuild fails it can even
-  delete node-pty's `build/` folder). Afterwards `npm test` fails with a `NODE_MODULE_VERSION` error until you
-  run `npm rebuild node-pty`. CI runs the tests before packaging for this reason.
+- node-pty (1.1+) is a Node-API addon, so packaging does **not** rebuild it (`npmRebuild: false`): the binary
+  that `npm install` put in place works in Node and in Electron alike, and `npm test` keeps working after a build.
 - Building the Windows installer on Linux is not supported; CI builds it on Windows.
 
 ## Notes for the core and app code (packaging rules)

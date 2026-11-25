@@ -38,8 +38,10 @@ asarUnpack:
   - node_modules/ws/**
   - node_modules/@xterm/headless/**
 
-# Rebuild native modules (node-pty) against Electron's ABI while packaging.
-npmRebuild: true
+# No native rebuild: node-pty 1.1 is a Node-API addon, so one binary loads in Node and in
+# Electron. On Windows it ships prebuilt binaries (prebuilds/win32-x64), so nothing is compiled;
+# rebuilding from source would only reintroduce the MSVC/node-gyp toolchain problems.
+npmRebuild: false
 nodeGypRebuild: false
 buildDependenciesFromSource: false
 

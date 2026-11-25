@@ -76,11 +76,16 @@ function main() {
   }
   const ptyDir = path.join(unpacked, 'node_modules', 'node-pty');
   expectFile(path.join(ptyDir, 'lib', 'index.js'), 'unpacked node-pty/lib/index.js');
-  expectFile(path.join(ptyDir, 'build', 'Release', 'pty.node'), 'unpacked node-pty pty.node');
-  if (process.platform === 'win32') {
-    for (const f of ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll']) {
-      expectFile(path.join(ptyDir, 'build', 'Release', f), `unpacked node-pty ${f}`);
-    }
+  // node-pty loads its binaries from build/Release (compiled at install) or, failing that, from
+  // prebuilds/<platform>-<arch> (shipped in the package; what Windows uses).
+  const nativeDirs = [path.join(ptyDir, 'build', 'Release'), path.join(ptyDir, 'prebuilds', `${process.platform}-${process.arch}`)];
+  const natives = process.platform === 'win32'
+    ? ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll']
+    : ['pty.node'];
+  for (const f of natives) {
+    const found = nativeDirs.map((d) => path.join(d, f)).find((p) => fs.existsSync(p));
+    if (found) ok(`unpacked node-pty ${path.relative(ptyDir, found)}`);
+    else problems.push(`unpacked node-pty ${f} is missing (looked in build/Release and prebuilds/${process.platform}-${process.arch})`);
   }
   expectFile(path.join(unpacked, 'node_modules', 'ws', 'index.js'), 'unpacked ws');
 
@@ -126,7 +131,7 @@ function probe(exe, unpacked) {
   if (res.error) problems.push(`probe could not run ${exe}: ${res.error.message}`);
   else if (!/PROBE_OK/.test(output)) {
     const abi = /NODE_MODULE_VERSION/.test(output)
-      ? ' (node-pty was built for a different Node ABI: run `npx electron-builder install-app-deps` before packaging, or keep npmRebuild: true)'
+      ? ' (node-pty is not a Node-API build: it must be node-pty >= 1.1, see electron-builder.yml)'
       : '';
     problems.push(`node-pty probe under the packaged Electron failed${abi}`);
   } else ok('node-pty spawns a PTY inside the packaged app (ELECTRON_RUN_AS_NODE=1)');

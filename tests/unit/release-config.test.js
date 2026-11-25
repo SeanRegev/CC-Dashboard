@@ -46,7 +46,7 @@ test('CI workflow: Windows and Linux jobs with pinned actions and the installer 
   assert.ok(ci.on && 'push' in ci.on && 'pull_request' in ci.on, 'runs on push and pull_request');
   const win = ci.jobs['test-windows'];
   const linux = ci.jobs['test-linux'];
-  assert.equal(win['runs-on'], 'windows-2022', 'pinned: node-gyp 9.4.1 cannot find Visual Studio 2026 on windows-latest');
+  assert.equal(win['runs-on'], 'windows-2022', 'pinned: the node-gyp fallback cannot find Visual Studio 2026 on windows-latest');
   assert.equal(linux['runs-on'], 'ubuntu-latest');
   const uses = [...win.steps, ...linux.steps].filter((s) => s.uses).map((s) => s.uses);
   for (const u of uses) assert.match(u, /@v\d+$/, `${u} is pinned to a major version`);
@@ -54,7 +54,7 @@ test('CI workflow: Windows and Linux jobs with pinned actions and the installer 
   const runs = (job) => job.steps.map((s) => s.run || '').join('\n');
   assert.match(runs(win), /npm ci/);
   assert.match(runs(win), /npm test/);
-  assert.match(runs(win), /electron-builder install-app-deps/);
+  assert.doesNotMatch(runs(win), /install-app-deps/, 'node-pty is Node-API: no rebuild for Electron');
   assert.match(runs(win), /electron-builder --win nsis portable --publish never/);
   assert.match(runs(linux), /xvfb-run -a npm run test:e2e/);
   const upload = win.steps.find((s) => s.uses === 'actions/upload-artifact@v4' && s.with.name === 'CC-Dashboard-windows');
@@ -66,7 +66,7 @@ test('CI workflow: Windows and Linux jobs with pinned actions and the installer 
 test('electron-builder config: ids, targets, installer options', () => {
   assert.equal(builder.appId, 'dev.ccdashboard.app');
   assert.equal(builder.productName, 'CC-Dashboard');
-  assert.equal(builder.npmRebuild, true);
+  assert.equal(builder.npmRebuild, false, 'node-pty is Node-API with Windows prebuilds: rebuilding from source only adds toolchain failures');
   for (const f of ['package.json', 'packages/**', 'node_modules/**']) assert.ok(builder.files.includes(f), `files has ${f}`);
   assert.deepEqual(builder.win.target, ['nsis', 'portable']);
   assert.equal(builder.nsis.oneClick, false);
@@ -113,4 +113,16 @@ test('icons: 1024px PNG and a multi-size ICO with 16 and 256 px entries', () => 
     assert.ok(off + len <= ico.length, `entry ${i} lies inside the file`);
   }
   for (const s of [16, 32, 48, 256]) assert.ok(sizes.includes(s), `ico has ${s}px (has ${sizes.join(', ')})`);
+});
+
+test('node-pty is a Node-API build with Windows prebuilds, so packaging needs no native rebuild', () => {
+  const spec = pkg.dependencies['node-pty'];
+  assert.match(spec, /^\d+\.\d+\.\d+$/, 'node-pty is pinned to an exact version');
+  const [major, minor] = spec.split('.').map(Number);
+  assert.ok(major > 1 || (major === 1 && minor >= 1), `node-pty ${spec}: 1.0 and older are not Node-API and need compiling for Electron`);
+  const ptyPkg = JSON.parse(read('node_modules/node-pty/package.json'));
+  assert.ok(ptyPkg.dependencies && ptyPkg.dependencies['node-addon-api'], 'installed node-pty is built on node-addon-api');
+  for (const f of ['conpty.node', 'conpty_console_list.node', 'winpty-agent.exe', 'winpty.dll']) {
+    assert.ok(fs.existsSync(path.join(REPO, 'node_modules', 'node-pty', 'prebuilds', 'win32-x64', f)), `prebuilds/win32-x64/${f} ships with node-pty`);
+  }
 });
