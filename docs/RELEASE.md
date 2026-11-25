@@ -18,7 +18,37 @@ run hooks with plain `node`, while the installed app runs them with its own GUI-
 Packaging config: `electron-builder.yml`. Icon: `build/icon.svg` → `build/icon.png` + `build/icon.ico`
 (regenerate with `npm run icon`, or `npx electron scripts/make-icon.js` where Playwright's Chromium isn't installed).
 
-## Download the installer
+## Cutting a release
+
+```bash
+npm run release -- patch     # 0.1.0 -> 0.1.1; also minor, major, or an exact version (1.0.0, 1.0.0-beta.1)
+git push origin main --follow-tags
+```
+
+`npm run release` (`scripts/release.js`) refuses unless you're on `main`, the tree is clean and `main` is up to date
+with `origin/main`; it runs `npm test`, then `npm version`, which bumps `package.json` + `package-lock.json`,
+commits *"Release vX.Y.Z"* and creates the tag `vX.Y.Z`. Add `--push` to push `main` and the tag in one go.
+
+The tag starts `.github/workflows/release.yml` (Windows, `windows-2022`):
+
+1. `node scripts/release.js --check-tag <tag>`: the tag must be `vMAJOR.MINOR.PATCH[-suffix]` and equal the
+   `package.json` version, or the run stops before anything slow.
+2. `npm ci` → `npm test` → `npm run test:e2e` → `electron-builder --win nsis portable` → `check-package.js`.
+3. `SHA256SUMS.txt` for the two exe files.
+4. `gh release create`: a GitHub Release titled *CC-Dashboard X.Y.Z* with the installer, the portable exe and the
+   checksums. Its notes are an install section (`release.js --notes`) followed by GitHub's generated changelog
+   (merged pull requests and contributors since the previous tag). A version with a suffix becomes a **pre-release**.
+
+If the run fails, nothing is published: fix it on `main`, then delete the tag (`git push origin :refs/tags/vX.Y.Z`
+and `git tag -d vX.Y.Z`) and release again, or release the next patch version.
+
+The app's version (shown at the bottom of the sidebar, and in the installer's file name) is `package.json`'s.
+The release tests (`tests/unit/release.test.js`) pin the workflow's order: no publishing before the tests and the
+package check pass.
+
+## Download a test build (any commit)
+
+Every CI run also keeps the installer as a workflow artifact for 30 days:
 
 1. Open the repository on GitHub → **Actions** → **CI**.
 2. Click the run for the commit you want (green check).

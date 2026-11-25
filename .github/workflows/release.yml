@@ -1,0 +1,89 @@
+# Publishes a GitHub Release with the Windows installer when a version tag is pushed.
+#   npm run release -- patch      (bumps package.json, commits, tags vX.Y.Z; see docs/RELEASE.md)
+#   git push origin main --follow-tags
+# A tag with a suffix (v0.2.0-beta.1) becomes a pre-release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload the installers
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  FORCE_COLOR: "1"
+  npm_config_loglevel: warn
+
+jobs:
+  release-windows:
+    name: Build and publish the Windows installer
+    # Same runner as CI (see ci.yml for why it is pinned).
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tag matches package.json
+        run: node scripts/release.js --check-tag "$GITHUB_REF_NAME"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit + core tests
+        run: npm test
+
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Build installer (NSIS + portable)
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Check packaged app
+        run: node scripts/check-package.js dist/win-unpacked
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release.js --notes "$GITHUB_REF_NAME" > release-notes.md
+          prerelease=""
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease="--prerelease"; fi
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/SHA256SUMS.txt \
+            --title "CC-Dashboard ${GITHUB_REF_NAME#v}" \
+            --notes-file release-notes.md --generate-notes $prerelease
+
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-logs
+          path: |
+            test-results/
+            dist/builder-debug.yml
+          if-no-files-found: ignore

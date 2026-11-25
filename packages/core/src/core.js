@@ -28,6 +28,8 @@ const { baseCommand, claudeArgs, spawnSpec } = require('./command');
  *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, createdAt:number}} Agent
  */
 
+/** Set by a running Claude Code session for the processes it starts; never meant for our agents. */
+const PARENT_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_SSE_PORT'];
 const STUCK_MESSAGE = 'Claude is showing a screen that needs you. Open it to check.';
 const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
 
@@ -375,9 +377,11 @@ class Core extends EventEmitter {
   agentEnv(agent) {
     /** @type {NodeJS.ProcessEnv} */
     const env = { ...this.env };
-    // Started from inside a Claude Code session (development): don't look like a nested session.
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
+    // Started from inside a Claude Code session (e.g. the app opened from a Claude Code terminal):
+    // drop what that session sets for its own children, or every agent would think it is a
+    // nested child session (no transcript, so no resume and no usage). User settings such as
+    // ANTHROPIC_API_KEY or CLAUDE_CODE_USE_BEDROCK pass through untouched.
+    for (const k of PARENT_SESSION_VARS) delete env[k];
     // The installed core runs on Electron with ELECTRON_RUN_AS_NODE=1. Claude must not inherit
     // it (it would break any Electron app Claude starts); the hook launcher sets it for hook.js.
     delete env.ELECTRON_RUN_AS_NODE;
