@@ -50,3 +50,13 @@ test('state survives a hard kill of the core (atomic snapshots on disk)', async 
   t.after(async () => { await again.stop(); rmrf(home); });
   checkRestored(await again.client.call('agents.list'), await again.client.call('spaces.list'), space, agent);
 });
+
+test('a hard kill right after a state change keeps that state (Windows has no SIGTERM)', async (t) => {
+  const home = tempHome();
+  // setup() returns as soon as the "idle, 1 turn" event arrives; no waiting for a snapshot.
+  const { core, space, agent } = await setup(home);
+  await core.stop('SIGKILL');
+  const again = await startCore({ home });
+  t.after(async () => { await again.stop(); rmrf(home); });
+  checkRestored(await again.client.call('agents.list'), await again.client.call('spaces.list'), space, agent);
+});

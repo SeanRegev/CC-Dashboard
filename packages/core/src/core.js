@@ -146,9 +146,16 @@ class Core extends EventEmitter {
     const rt = out.rt || rtBefore;
     this.status.set(id, after);
     this.rt.set(id, rt);
+    // A state change (working → idle, → needs_you, …) is on disk before anyone hears of it. On
+    // Windows every stop of the core is a hard kill (no SIGTERM), so a debounced save would lose
+    // the last turn. Tool details and usage still come in bursts: those are saved soon after.
+    let saved = false;
+    if (after.state !== before.state) {
+      try { this.store.saveNow(); saved = true; } catch { /* file held open: retried below */ }
+    }
+    if (!saved) this.store.saveSoon();
     this.broadcast('agent.status', after);
     this.alert(id, before, after, rtBefore, info.event);
-    this.store.saveSoon();
     return after;
   }
 
