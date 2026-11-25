@@ -36,6 +36,7 @@ asarUnpack:
   - packages/shared/**
   - node_modules/node-pty/**
   - node_modules/ws/**
+  - node_modules/@xterm/headless/**
 
 # Rebuild native modules (node-pty) against Electron's ABI while packaging.
 npmRebuild: true
