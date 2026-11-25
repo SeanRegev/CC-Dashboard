@@ -13,6 +13,19 @@ fs.appendFileSync(path.join(process.env.CC_HOME || '.', 'env.log'), JSON.stringi
   CC_AGENT_ID: pick('CC_AGENT_ID'), CC_CORE_URL: pick('CC_CORE_URL'), CC_TOKEN: pick('CC_TOKEN'),
   ELECTRON_RUN_AS_NODE: pick('ELECTRON_RUN_AS_NODE'), CLAUDECODE: pick('CLAUDECODE'),
 }) + '\n');
+/**
+ * The terminal size right now. process.stdout.getWindowSize() is a cached value that Node refreshes
+ * on a resize signal; on Windows that signal only comes with raw-mode console input (as a real TUI
+ * like claude reads it), and this fake reads lines. So ask the console handle directly.
+ */
+function termSize() {
+  if (!process.stdout.isTTY) return [0, 0];
+  const handle = /** @type {any} */ (process.stdout)._handle;
+  const out = [0, 0];
+  if (handle && typeof handle.getWindowSize === 'function' && handle.getWindowSize(out) === 0) return out;
+  return process.stdout.getWindowSize();
+}
+
 // Input arrives in arbitrary chunks (ConPTY on Windows can split a typed line), so buffer lines.
 let pending = '';
 process.stdin.on('data', (d) => {
@@ -21,7 +34,7 @@ process.stdin.on('data', (d) => {
   pending = lines.pop() || '';
   for (const line of lines) {
     if (line.trim() !== 'size') continue;
-    const [cols, rows] = process.stdout.isTTY ? process.stdout.getWindowSize() : [0, 0];
+    const [cols, rows] = termSize();
     process.stdout.write(`SIZE ${cols}x${rows}\r\n`);
   }
 });

@@ -10,8 +10,10 @@ Every push and pull request runs `.github/workflows/ci.yml` on GitHub Actions:
 | **Linux - tests + e2e** (`test-linux`) | `ubuntu-latest`, Node 22 | `npm ci` → `npm test` → `xvfb-run -a npm run test:e2e` → `electron-builder --linux dir` + package check (validates the packaging config) → upload `test-results/` (screenshots, core logs) |
 
 `scripts/check-package.js` fails the build if the packaged app is missing files the installed core needs from
-disk, or if node-pty can't open a terminal when run by the packaged exe as Node (`ELECTRON_RUN_AS_NODE=1`). That
-second check catches a node-pty that wasn't rebuilt for Electron, which otherwise only shows up on a user's machine.
+disk, if node-pty can't open a terminal when run by the packaged exe as Node (`ELECTRON_RUN_AS_NODE=1`), or if a
+hook run the way Claude Code runs it (the shell starts the launcher, which starts the packaged exe on `hook.js`, JSON
+on stdin) doesn't reach the core. These fail on a user's machine otherwise, and the unit tests can't see them: they
+run hooks with plain `node`, while the installed app runs them with its own GUI-subsystem exe.
 
 Packaging config: `electron-builder.yml`. Icon: `build/icon.svg` → `build/icon.png` + `build/icon.ico`
 (regenerate with `npm run icon`, or `npx electron scripts/make-icon.js` where Playwright's Chromium isn't installed).
