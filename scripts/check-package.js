@@ -6,15 +6,21 @@
 //
 // 1. Layout: app.asar holds package.json + the main entry; the core, the shared contract, ws and
 //    node-pty (with its native binaries and Windows helpers) are in app.asar.unpacked.
-// 2. Probe (unless --no-probe): runs the packaged exe as Node (ELECTRON_RUN_AS_NODE=1), loads
-//    node-pty from app.asar.unpacked and spawns a child in a real PTY (ConPTY on Windows). This
-//    proves node-pty was rebuilt for Electron's ABI, which is what the installed core does.
+// 2. Probes (unless --no-probe):
+//    - PTY: runs the packaged exe as Node (ELECTRON_RUN_AS_NODE=1), loads node-pty from
+//      app.asar.unpacked and runs a console program in a real PTY (ConPTY on Windows), as the
+//      installed core does with claude.
+//    - Hook: writes the hook launcher for the packaged exe (as the core does), runs it through the
+//      shell like Claude Code runs hooks, with a JSON payload on stdin, and checks the payload
+//      reaches a local HTTP server. On Windows the exe is a GUI-subsystem program started from a
+//      .cmd file: this is the path every hook takes in the installed app.
 // Exits 1 with a clear list of problems on failure.
 'use strict';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const http = require('http');
+const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const args = process.argv.slice(2);
@@ -43,7 +49,7 @@ function expectFile(file, label) {
   else problems.push(`missing ${label}: ${file}`);
 }
 
-function main() {
+async function main() {
   const dir = findUnpackedDir();
   const resources = process.platform === 'darwin' ? path.join(dir, 'Resources') : path.join(dir, 'resources');
   const asarFile = path.join(resources, 'app.asar');
@@ -89,14 +95,11 @@ function main() {
   }
   expectFile(path.join(unpacked, 'node_modules', 'ws', 'index.js'), 'unpacked ws');
 
-  if (!noProbe && problems.length === 0) probe(exe, unpacked);
-
-  if (problems.length) {
-    console.error(`\nPACKAGE CHECK FAILED (${problems.length} problem(s)):`);
-    for (const p of problems) console.error(`  - ${p}`);
-    process.exit(1);
+  if (!noProbe && problems.length === 0) {
+    probe(exe, unpacked);
+    await probeHook(exe, unpacked);
   }
-  console.log('\nPackage check passed.');
+
 }
 
 /** Runs the packaged exe as Node and spawns a child through node-pty loaded from app.asar.unpacked. */
@@ -109,7 +112,12 @@ function probe(exe, unpacked) {
     const protocol = require(path.join(unpacked, 'packages', 'shared', 'protocol.js'));
     const pty = require(path.join(unpacked, 'node_modules', 'node-pty'));
     console.log('ELECTRON', process.versions.electron, 'ABI', process.versions.modules, 'PROTOCOL', protocol.PROTOCOL_VERSION);
-    const term = pty.spawn(process.execPath, ['-e', 'console.log("PTY_" + "OK")'], {
+    // A console program: the packaged exe is a GUI-subsystem program on Windows and gets no
+    // console inside a PTY, so it can't be the child here (claude.exe is a console program).
+    const [file, argv] = process.platform === 'win32'
+      ? [process.env.ComSpec || 'cmd.exe', ['/d', '/c', 'echo PTY_OK']]
+      : [process.execPath, ['-e', 'console.log("PTY_" + "OK")']];
+    const term = pty.spawn(file, argv, {
       cols: 80, rows: 24, cwd: process.cwd(), env: process.env,
     });
     let out = '';
@@ -138,7 +146,58 @@ function probe(exe, unpacked) {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
-try { main(); } catch (err) {
+/**
+ * Runs the packaged hook (hook.js from app.asar.unpacked, through the launcher the core writes,
+ * started by the shell like Claude Code does) and checks the payload arrives.
+ */
+async function probeHook(exe, unpacked) {
+  const { launcherText, launcherName } = require(path.join(ROOT, 'packages', 'core', 'src', 'hooks-settings.js'));
+  const hookScript = path.join(unpacked, 'packages', 'core', 'src', 'hook.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-pkg-hook-'));
+  const launcher = path.join(tmp, launcherName());
+  fs.writeFileSync(launcher, launcherText(exe, hookScript), { mode: 0o755 });
+  /** @type {{event?: string, body?: string, agent?: string}} */
+  let got = {};
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      got = { event: String(req.headers['x-cc-event']), agent: new URL(req.url || '/', 'http://x').searchParams.get('agent') || '', body: Buffer.concat(chunks).toString('utf8') };
+      res.end('{"ok":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', () => r(null)));
+  const port = /** @type {any} */ (server.address()).port;
+  const payload = JSON.stringify({ session_id: 'probe', hook_event_name: 'Stop', note: 'ünïcode ✓' });
+  const env = { ...process.env, CC_AGENT_ID: 'probe-agent', CC_CORE_URL: `http://127.0.0.1:${port}`, CC_TOKEN: 'probe-token' };
+  delete env.ELECTRON_RUN_AS_NODE; // the launcher sets it, as for the real hooks
+  const result = await new Promise((resolve) => {
+    const child = spawn(`"${launcher}" Stop`, { shell: true, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    const timer = setTimeout(() => { child.kill(); resolve({ code: 'timeout', out }); }, 30000);
+    child.on('error', (e) => { clearTimeout(timer); resolve({ code: 'error', out: e.message }); });
+    child.on('exit', (code) => { clearTimeout(timer); resolve({ code, out }); });
+    child.stdin.end(payload);
+  });
+  server.close();
+  fs.rmSync(tmp, { recursive: true, force: true });
+  if (got.body === payload && got.event === 'Stop' && got.agent === 'probe-agent' && result.code === 0 && !result.out.trim()) {
+    ok('hook launcher runs the packaged hook.js and delivers the payload (as Claude Code runs hooks)');
+  } else {
+    problems.push(`hook probe failed: exit ${result.code}, output ${JSON.stringify(result.out.slice(0, 300))}, received ${JSON.stringify(got)}`);
+  }
+}
+
+main().then(() => {
+  if (problems.length) {
+    console.error(`\nPACKAGE CHECK FAILED (${problems.length} problem(s)):`);
+    for (const p of problems) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+  console.log('\nPackage check passed.');
+}, (err) => {
   console.error('PACKAGE CHECK FAILED:', err instanceof Error ? err.message : err);
   process.exit(1);
-}
+});
