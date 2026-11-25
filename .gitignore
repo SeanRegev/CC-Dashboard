@@ -3,3 +3,4 @@ dist/
 out/
 .cc-dashboard/
 *.log
+test-results/

@@ -1,0 +1,147 @@
+# CC-Dashboard CI: tests on Windows (first target) and Linux, Windows installer as an artifact.
+# See docs/RELEASE.md.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # No code-signing certificate yet: don't let electron-builder look for one.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  # Readable failures in the logs.
+  FORCE_COLOR: "1"
+  npm_config_loglevel: warn
+
+jobs:
+  test-windows:
+    name: Windows - tests + installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # node-gyp 9 (used by electron-builder's @electron/rebuild) imports distutils, which
+      # Python 3.12+ no longer ships. 3.11 works for it and for npm's own node-gyp.
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tool versions
+        run: |
+          node --version
+          npm --version
+          python --version
+
+      - name: Install dependencies (builds node-pty for Node)
+        run: npm ci
+
+      - name: Unit + core tests (real core, fake Claude, ConPTY)
+        run: npm test
+
+      - name: End-to-end tests (Electron app + core)
+        run: npm run test:e2e
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+
+      - name: Build installer (NSIS + portable)
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Check packaged app (layout + node-pty under packaged Electron)
+        run: node scripts/check-package.js dist/win-unpacked
+
+      - name: List build output
+        if: always()
+        shell: bash
+        run: ls -la dist || echo "no dist/ directory"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: CC-Dashboard-windows
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test results and build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          path: |
+            test-results/
+            dist/builder-debug.yml
+            dist/builder-effective-config.yaml
+          if-no-files-found: ignore
+
+  test-linux:
+    name: Linux - tests + e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python 3.11 for node-gyp
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Ensure xvfb is installed
+        run: |
+          set -euo pipefail
+          if ! command -v xvfb-run >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          node --version; npm --version; python --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit + core tests
+        run: npm test
+
+      - name: End-to-end tests (Electron under Xvfb)
+        run: xvfb-run -a npm run test:e2e
+
+      # Validates electron-builder.yml on every push (Linux unpacked dir; Windows targets are built above).
+      - name: Package check (linux dir)
+        run: |
+          set -euo pipefail
+          npx electron-builder --linux dir --publish never
+          node scripts/check-package.js dist/linux-unpacked
+
+      - name: Upload test results (screenshots, core logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-results
+          path: test-results/
+          if-no-files-found: ignore

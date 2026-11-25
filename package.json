@@ -9,10 +9,12 @@
   "scripts": {
     "core": "node packages/core/src/index.js",
     "app": "electron .",
-    "test": "node --test tests/unit/ tests/core/",
-    "test:e2e": "xvfb-run -a node --test tests/e2e/",
-    "dist:win": "electron-builder --win",
-    "postinstall": "node scripts/postinstall.js"
+    "test": "node --test --test-force-exit --test-reporter=spec \"tests/unit/**/*.test.js\" \"tests/core/**/*.test.js\"",
+    "test:e2e": "node --test --test-force-exit --test-reporter=spec --test-concurrency=1 \"tests/e2e/**/*.test.js\"",
+    "dist:win": "electron-builder --win nsis portable --publish never",
+    "postinstall": "node scripts/postinstall.js",
+    "dist:dir": "electron-builder --dir --publish never",
+    "icon": "node scripts/make-icon.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.10.0",
@@ -22,6 +24,8 @@
   },
   "devDependencies": {
     "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron-builder": "25.1.8",
+    "js-yaml": "4.3.2",
+    "playwright-core": "1.63.0"
   }
 }
