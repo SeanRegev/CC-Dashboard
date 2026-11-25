@@ -65,11 +65,10 @@ test('a second core on the same home exits cleanly and leaves core.json alone', 
 
 test('a stale core.json (dead pid) is taken over', async (t) => {
   const home = tempHome();
-  t.after(() => rmrf(home));
   fs.writeFileSync(path.join(home, 'core.json'), JSON.stringify({ port: 1, token: 'old', pid: 999999, version: '0' }));
   fs.writeFileSync(path.join(home, 'core.lock'), '999999');
   const core = await startCore({ home });
-  t.after(() => core.stop());
+  t.after(async () => { await core.stop(); rmrf(home); });
   assert.equal(readJson(path.join(home, 'core.json')).pid, core.proc.pid);
 });
 
@@ -118,4 +117,25 @@ test('spaces: add, list, dedupe by path, unique ids, remove, space.changed event
   assert.deepEqual((await c.call('spaces.list')).map((s) => s.id), ['my-project-2']);
   assert.equal(changes.length, 3);
   assert.deepEqual(changes[2].spaces.map((s) => s.id), ['my-project-2']);
+});
+
+test('client.startCore starts a detached core once, and findCore finds it', async (t) => {
+  const { startCore: launch, findCore } = require('../../packages/core/src/client');
+  const home = tempHome();
+  const env = { ...process.env, CC_CLAUDE: claudeCmd() };
+  assert.equal(await findCore(home), null);
+  const info = await launch({ home, env });
+  t.after(async () => {
+    try { process.kill(info.pid); } catch { /* gone */ }
+    const { pidAlive } = require('../../packages/core/src/index');
+    const { waitFor } = require('./helpers');
+    await waitFor(() => !pidAlive(info.pid), { what: 'core exit' });
+    rmrf(home);
+  });
+  assert.equal((await findCore(home)).pid, info.pid);
+  const again = await launch({ home, env });
+  assert.equal(again.pid, info.pid);
+  const c = await connect({ home, clientName: 'app' });
+  assert.deepEqual(await c.call('spaces.list'), []);
+  c.close();
 });

@@ -27,11 +27,10 @@ function checkRestored(rows, spaces, space, agent) {
 
 test('spaces, agents and last known status survive a clean core restart', async (t) => {
   const home = tempHome();
-  t.after(() => rmrf(home));
   const { core, space, agent } = await setup(home);
   await core.stop('SIGTERM');
   const again = await startCore({ home });
-  t.after(() => again.stop());
+  t.after(async () => { await again.stop(); rmrf(home); });
   checkRestored(await again.client.call('agents.list'), await again.client.call('spaces.list'), space, agent);
   // It can be resumed in the new core.
   await again.client.call('agents.resume', { id: agent.id });
@@ -40,7 +39,6 @@ test('spaces, agents and last known status survive a clean core restart', async 
 
 test('state survives a hard kill of the core (atomic snapshots on disk)', async (t) => {
   const home = tempHome();
-  t.after(() => rmrf(home));
   const { core, space, agent } = await setup(home);
   // Snapshots are written shortly after each change; wait until the idle status is on disk.
   await waitFor(() => {
@@ -49,6 +47,6 @@ test('state survives a hard kill of the core (atomic snapshots on disk)', async 
   }, { what: 'snapshot' });
   await core.stop('SIGKILL');
   const again = await startCore({ home });
-  t.after(() => again.stop());
+  t.after(async () => { await again.stop(); rmrf(home); });
   checkRestored(await again.client.call('agents.list'), await again.client.call('spaces.list'), space, agent);
 });
