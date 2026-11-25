@@ -167,6 +167,7 @@ git push origin main --follow-tags
 ```
 
 `npm run release` checks you're on a clean, up-to-date `main`, runs the tests, bumps the version and tags it (`npm run release -- patch --push` also pushes).
+No git at hand? **Actions → Release → Run workflow** on `main` releases the version in `package.json` and creates its tag.
 The tag starts the [Release workflow](.github/workflows/release.yml): it runs every test on Windows, builds the installer, checks the packaged app,
 and publishes a GitHub Release with the installer, the portable exe, checksums and the changelog. A version with a suffix (`-beta.1`) becomes a pre-release.
 Details: [docs/RELEASE.md](docs/RELEASE.md).

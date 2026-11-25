@@ -32,12 +32,17 @@ commits *"Release vX.Y.Z"* and creates the tag `vX.Y.Z`. Add `--push` to push `m
 The tag starts `.github/workflows/release.yml` (Windows, `windows-2022`):
 
 1. `node scripts/release.js --check-tag <tag>`: the tag must be `vMAJOR.MINOR.PATCH[-suffix]` and equal the
-   `package.json` version, or the run stops before anything slow.
+   `package.json` version, or the run stops before anything slow. (Run by hand: the tag is `v<package.json version>`,
+   only from `main`, and only if it doesn't exist yet.)
 2. `npm ci` → `npm test` → `npm run test:e2e` → `electron-builder --win nsis portable` → `check-package.js`.
 3. `SHA256SUMS.txt` for the two exe files.
 4. `gh release create`: a GitHub Release titled *CC-Dashboard X.Y.Z* with the installer, the portable exe and the
    checksums. Its notes are an install section (`release.js --notes`) followed by GitHub's generated changelog
    (merged pull requests and contributors since the previous tag). A version with a suffix becomes a **pre-release**.
+
+**Without git:** on GitHub open **Actions → Release → Run workflow** (branch `main`). It releases the version
+in `package.json` and creates the tag `vX.Y.Z` on the commit it built, as long as that tag doesn't exist yet. To
+release a new version this way, bump `package.json` in a pull request first.
 
 If the run fails, nothing is published: fix it on `main`, then delete the tag (`git push origin :refs/tags/vX.Y.Z`
 and `git tag -d vX.Y.Z`) and release again, or release the next patch version.
