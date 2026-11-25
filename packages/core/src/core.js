@@ -1,0 +1,508 @@
+// @ts-check
+'use strict';
+/**
+ * The core's brain: spaces, agents, their terminals and their status.
+ *
+ * Every change to an agent's status goes through `update()`, and this process is the only
+ * writer, so hook events, user actions (approve/deny/stop) and timers are applied one at a
+ * time and can never overwrite each other. (The Python deck needed a file lock for this.)
+ */
+const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { EventEmitter } = require('events');
+const { ERRORS, PROTOCOL_VERSION } = require('../../shared/protocol');
+const { newStatus, newRuntime, applyEvent, withState } = require('./status');
+const { UsageReader } = require('./usage');
+const { StateStore } = require('./store');
+const { ensureSettings } = require('./hooks-settings');
+const { AgentTerminal, Scrollback } = require('./terminal');
+const { baseCommand, claudeArgs, spawnSpec } = require('./command');
+
+/**
+ * @typedef {import('./types').AgentStatus} AgentStatus
+ * @typedef {import('./types').Runtime} Runtime
+ * @typedef {{id:string, name:string, path:string, createdAt:number}} Space
+ * @typedef {{id:string, spaceId:string, name:string, cwd:string, sessionId:string, model?:string, effort?:string,
+ *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, createdAt:number}} Agent
+ */
+
+const STUCK_MESSAGE = 'Claude is showing a screen that needs you. Open it to check.';
+const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
+
+class RpcError extends Error {
+  /** @param {string} code @param {string} message */
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** @param {string} text */
+function slug(text) {
+  return String(text || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+function envNumber(env, name, fallback) {
+  const v = Number(env[name]);
+  return Number.isFinite(v) && v >= 0 && env[name] !== '' && env[name] !== undefined ? v : fallback;
+}
+
+/** Where real Claude Code keeps a session's transcript. */
+function defaultTranscriptPath(cwd, sessionId, env = process.env) {
+  const base = env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return path.join(base, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`);
+}
+
+class Core extends EventEmitter {
+  /**
+   * @param {{home:string, version:string, env?:NodeJS.ProcessEnv}} opts
+   *   Timings can be tuned with env (tests): CC_STUCK_MS, CC_PROMPT_GONE_MS, CC_LONG_TURN_MS, CC_TICK_MS.
+   */
+  constructor(opts) {
+    super();
+    this.home = opts.home;
+    this.version = opts.version;
+    this.env = opts.env || process.env;
+    this.stuckMs = envNumber(this.env, 'CC_STUCK_MS', 12_000);
+    this.promptGoneMs = envNumber(this.env, 'CC_PROMPT_GONE_MS', 3_000);
+    this.longTurnMs = envNumber(this.env, 'CC_LONG_TURN_MS', 60_000);
+    this.tickMs = envNumber(this.env, 'CC_TICK_MS', Math.max(50, Math.min(1000, Math.floor(this.stuckMs / 4))));
+    this.store = new StateStore(this.home);
+    this.usage = new UsageReader();
+    /** @type {Map<string, Space>} */ this.spaces = new Map();
+    /** @type {Map<string, Agent>} */ this.agents = new Map();
+    /** @type {Map<string, AgentStatus>} */ this.status = new Map();
+    /** @type {Map<string, Runtime>} */ this.rt = new Map();
+    /** @type {Map<string, AgentTerminal>} */ this.terms = new Map();
+    /** @type {Map<string, Scrollback>} */ this.scrollbacks = new Map();
+    /** @type {Map<string, {cols:number, rows:number}>} */ this.sizes = new Map();
+    /** @type {Set<string>} agents the user stopped (their late hooks are ignored) */
+    this.userStopped = new Set();
+    this.coreUrl = '';
+    this.token = '';
+    this.settingsPath = '';
+    /** @type {NodeJS.Timeout|null} */ this.ticker = null;
+    this.lastUsageScan = 0;
+  }
+
+  /** Load saved state. Agents whose process is gone (all of them, after a restart) become stopped. */
+  start() {
+    fs.mkdirSync(this.home, { recursive: true });
+    this.settingsPath = ensureSettings(this.home);
+    const data = this.store.load();
+    for (const s of data.spaces) if (s && s.id) this.spaces.set(s.id, s);
+    const now = Date.now();
+    for (const a of data.agents) {
+      if (!a || !a.id) continue;
+      this.agents.set(a.id, a);
+      let st = data.status[a.id] || newStatus(a.id, now);
+      st = { ...newStatus(a.id, now), ...st, agentId: a.id };
+      if (st.state !== 'exited' && st.state !== 'stopped') st = withState(st, 'stopped', { tool: '' }, now);
+      this.status.set(a.id, st);
+      this.rt.set(a.id, { ...newRuntime(), ...(data.runtime[a.id] || {}), stuck: false });
+    }
+    this.store.bind(() => this.snapshot());
+    this.store.saveNow();
+    this.ticker = setInterval(() => this.tick(), this.tickMs);
+    this.ticker.unref();
+  }
+
+  /** @param {string} url @param {string} token */
+  setEndpoint(url, token) {
+    this.coreUrl = url;
+    this.token = token;
+  }
+
+  snapshot() {
+    const status = {};
+    const runtime = {};
+    for (const [id, s] of this.status) status[id] = s;
+    for (const [id, r] of this.rt) runtime[id] = { ...r, stuck: undefined };
+    return { spaces: [...this.spaces.values()], agents: [...this.agents.values()], status, runtime };
+  }
+
+  // ---- events ------------------------------------------------------------------------------
+
+  /** @param {string} event @param {any} data */
+  broadcast(event, data) { this.emit('broadcast', event, data); }
+
+  notify(title, body, agentId) { this.broadcast('notify', { title, body, agentId }); }
+
+  /**
+   * The one place an agent's status changes.
+   * @param {string} id
+   * @param {(s: AgentStatus, r: Runtime) => {status: AgentStatus, rt?: Runtime}|null} fn  return null for no change
+   * @param {{event?: string}} [info]
+   */
+  update(id, fn, info = {}) {
+    const before = this.status.get(id);
+    const rtBefore = this.rt.get(id);
+    if (!before || !rtBefore) return null;
+    const out = fn(before, rtBefore);
+    if (!out) return before;
+    const after = out.status;
+    const rt = out.rt || rtBefore;
+    this.status.set(id, after);
+    this.rt.set(id, rt);
+    this.broadcast('agent.status', after);
+    this.alert(id, before, after, rtBefore, info.event);
+    this.store.saveSoon();
+    return after;
+  }
+
+  /** Native notifications: an agent starts needing you, or a long turn ends. */
+  alert(id, before, after, rtBefore, event) {
+    const agent = this.agents.get(id);
+    const name = agent ? agent.name : id;
+    if (after.state === 'needs_you' && before.state !== 'needs_you') {
+      this.notify(`${name} needs you`, after.message || 'Waiting for you', id);
+    } else if (event === 'Stop' && rtBefore.turnStartedAt) {
+      const took = after.updatedAt - rtBefore.turnStartedAt;
+      if (took >= this.longTurnMs) {
+        const secs = Math.floor(took / 1000);
+        const m = Math.floor(secs / 60);
+        const s = String(secs % 60).padStart(2, '0');
+        this.notify(`${name} is done (${m}m${s}s)`, after.lastPrompt || 'Finished its turn', id);
+      }
+    }
+  }
+
+  // ---- hooks -------------------------------------------------------------------------------
+
+  /**
+   * A hook event from hook.js. Applied synchronously, before the HTTP response is sent.
+   * @param {string} id @param {string} event @param {any} payload
+   * @returns {boolean} false if the agent is unknown
+   */
+  handleHook(id, event, payload) {
+    if (!this.agents.has(id)) return false;
+    const term = this.terms.get(id);
+    const live = term && term.running;
+    // Late hooks from a process that is gone must not resurrect it. A natural exit's
+    // SessionEnd can race the process exit, so that one is still accepted.
+    if (!live && (event !== 'SessionEnd' || this.userStopped.has(id))) return true;
+    this.update(id, (s, r) => {
+      const out = applyEvent(s, r, event, payload);
+      out.rt.stuck = false;
+      if (event === 'Stop') out.rt.turnStartedAt = 0;
+      const u = out.rt.transcriptPath ? this.usage.read(out.rt.transcriptPath) : null;
+      if (u) out.status.usage = u;
+      // Keep the turn start for alert(), which reads it from the "before" runtime.
+      return out;
+    }, { event });
+    return true;
+  }
+
+  // ---- timers ------------------------------------------------------------------------------
+
+  tick() {
+    const now = Date.now();
+    const scanUsage = now - this.lastUsageScan > 5000;
+    if (scanUsage) this.lastUsageScan = now;
+    for (const [id, term] of this.terms) {
+      if (!term.running) continue;
+      const s = this.status.get(id);
+      const r = this.rt.get(id);
+      if (!s || !r) continue;
+      if (s.state === 'starting' && !r.hookSinceLaunch && now - r.launchAt > this.stuckMs) {
+        // No hook since launch: Claude is probably on a screen (trust folder, login, update).
+        this.update(id, (st, rt) => ({
+          status: withState(st, 'needs_you', { message: STUCK_MESSAGE, needsSince: rt.launchAt || now }, now),
+          rt: { ...rt, stuck: true },
+        }));
+      } else if (s.state === 'needs_you' && s.permission && now - (r.permAt || s.needsSince || 0) > this.promptGoneMs
+        && this.promptGone(term)) {
+        // Answered inside the terminal (e.g. Esc): no hook fires for that.
+        this.update(id, (st, rt) => ({ status: withState(st, 'idle', {}, now), rt: { ...rt, answeredAt: now } }));
+      } else if (scanUsage && r.transcriptPath && s.state === 'working') {
+        const u = this.usage.read(r.transcriptPath);
+        if (u && JSON.stringify(u) !== JSON.stringify(s.usage)) {
+          this.update(id, (st) => ({ status: { ...st, usage: u, updatedAt: now } }));
+        }
+      }
+    }
+  }
+
+  /** @param {AgentTerminal} term */
+  promptGone(term) {
+    const screen = term.screenText();
+    return Boolean(screen.trim()) && !PROMPT_MARKERS.some((m) => screen.includes(m));
+  }
+
+  // ---- spaces ------------------------------------------------------------------------------
+
+  spacesList() { return [...this.spaces.values()]; }
+
+  spacesAdd(params) {
+    const p = params && params.path;
+    if (typeof p !== 'string' || !p.trim()) throw new RpcError(ERRORS.BAD_REQUEST, 'path is required');
+    const abs = path.resolve(p);
+    let st;
+    try { st = fs.statSync(abs); } catch { throw new RpcError(ERRORS.BAD_REQUEST, `folder not found: ${abs}`); }
+    if (!st.isDirectory()) throw new RpcError(ERRORS.BAD_REQUEST, `not a folder: ${abs}`);
+    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    for (const s of this.spaces.values()) if (same(s.path, abs)) return s;
+    const name = typeof params.name === 'string' && params.name.trim() ? params.name.trim() : path.basename(abs) || abs;
+    const id = this.uniqueId(slug(name) || 'space', this.spaces);
+    const space = { id, name, path: abs, createdAt: Date.now() };
+    this.spaces.set(id, space);
+    this.store.saveNow();
+    this.broadcast('space.changed', { spaces: this.spacesList() });
+    return space;
+  }
+
+  spacesRemove(params) {
+    const id = params && params.id;
+    if (!this.spaces.has(id)) throw new RpcError(ERRORS.NOT_FOUND, `no space ${id}`);
+    this.spaces.delete(id);
+    this.store.saveNow();
+    this.broadcast('space.changed', { spaces: this.spacesList() });
+    return true;
+  }
+
+  /** @param {string} base @param {Map<string, any>} map */
+  uniqueId(base, map) {
+    let id = base;
+    for (let n = 2; map.has(id); n++) id = `${base}-${n}`;
+    return id;
+  }
+
+  // ---- agents ------------------------------------------------------------------------------
+
+  agentsList() {
+    return [...this.agents.values()].map((agent) => ({ agent, status: this.status.get(agent.id), running: this.isRunning(agent.id) }));
+  }
+
+  isRunning(id) {
+    const t = this.terms.get(id);
+    return Boolean(t && t.running);
+  }
+
+  /** @param {string} id */
+  getAgent(id) {
+    const a = typeof id === 'string' ? this.agents.get(id) : undefined;
+    if (!a) throw new RpcError(ERRORS.NOT_FOUND, `no agent ${id}`);
+    return a;
+  }
+
+  /** @param {string} id */
+  runningTerm(id) {
+    this.getAgent(id);
+    const t = this.terms.get(id);
+    if (!t || !t.running) throw new RpcError(ERRORS.NOT_RUNNING, `agent ${id} is not running`);
+    return t;
+  }
+
+  agentsCreate(params) {
+    params = params || {};
+    const space = this.spaces.get(params.spaceId);
+    if (!space) throw new RpcError(ERRORS.NOT_FOUND, `no space ${params.spaceId}`);
+    for (const k of ['name', 'prompt', 'model', 'effort', 'mode', 'worktree']) {
+      if (params[k] !== undefined && params[k] !== null && typeof params[k] !== 'string') throw new RpcError(ERRORS.BAD_REQUEST, `${k} must be a string`);
+    }
+    let cwd = space.path;
+    if (params.worktree) {
+      cwd = path.resolve(params.worktree);
+      if (!fs.existsSync(cwd)) throw new RpcError(ERRORS.BAD_REQUEST, `worktree not found: ${cwd}`);
+    }
+    const name = (params.name || '').trim() || 'agent';
+    /** @type {Agent} */
+    const agent = {
+      id: this.uniqueId(slug(name) || 'agent', this.agents),
+      spaceId: space.id,
+      name,
+      cwd,
+      sessionId: crypto.randomUUID(),
+      model: params.model || '',
+      effort: params.effort || '',
+      mode: params.mode || '',
+      prompt: params.prompt || '',
+      createdAt: Date.now(),
+    };
+    if (params.worktree) agent.worktree = cwd;
+    this.agents.set(agent.id, agent);
+    this.status.set(agent.id, newStatus(agent.id));
+    this.rt.set(agent.id, newRuntime());
+    this.store.saveNow();
+    this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
+    this.launch(agent, { resume: false });
+    return agent;
+  }
+
+  /** @param {Agent} agent @param {{resume: boolean}} opts */
+  launch(agent, opts) {
+    const r = this.rt.get(agent.id) || newRuntime();
+    const transcript = r.transcriptPath && fs.existsSync(r.transcriptPath) ? r.transcriptPath
+      : fs.existsSync(defaultTranscriptPath(agent.cwd, agent.sessionId, this.env)) ? defaultTranscriptPath(agent.cwd, agent.sessionId, this.env) : '';
+    // Resume only with a transcript; otherwise (e.g. closed on a setup screen) start fresh with the same id and resend the task.
+    const resume = opts.resume && Boolean(transcript);
+    const args = claudeArgs(agent, { resume, settingsPath: this.settingsPath, prompt: resume ? '' : agent.prompt });
+    const now = Date.now();
+    this.userStopped.delete(agent.id);
+    this.update(agent.id, (s, rt) => ({
+      status: withState(s, 'starting', { tool: '', detail: '' }, now),
+      rt: { ...rt, launchAt: now, hookSinceLaunch: false, stuck: false, turnStartedAt: 0 },
+    }));
+    let spec;
+    let term;
+    try {
+      spec = spawnSpec(baseCommand(this.env), args, { env: this.env, cwd: agent.cwd });
+      let sb = this.scrollbacks.get(agent.id);
+      if (!sb) { sb = new Scrollback(); this.scrollbacks.set(agent.id, sb); }
+      const size = this.sizes.get(agent.id) || { cols: 120, rows: 32 };
+      term = new AgentTerminal({ file: spec.file, args: spec.args, cwd: agent.cwd, env: this.agentEnv(agent), scrollback: sb, ...size });
+    } catch (e) {
+      const msg = `Could not start Claude: ${/** @type {Error} */ (e).message}`;
+      this.update(agent.id, (s) => ({ status: withState(s, 'exited', { detail: msg }) }));
+      this.broadcast('agent.exit', { id: agent.id, code: -1 });
+      return;
+    }
+    this.terms.set(agent.id, term);
+    term.on('data', (data) => this.emit('output', agent.id, data));
+    term.on('exit', (code) => this.onExit(agent.id, term, code));
+  }
+
+  /** @param {Agent} agent */
+  agentEnv(agent) {
+    /** @type {NodeJS.ProcessEnv} */
+    const env = { ...this.env };
+    // Started from inside a Claude Code session (development): don't look like a nested session.
+    delete env.CLAUDECODE;
+    delete env.CLAUDE_CODE_ENTRYPOINT;
+    // ELECTRON_RUN_AS_NODE is kept: in the installed app hook.js runs on Electron's Node.
+    env.CC_AGENT_ID = agent.id;
+    env.CC_CORE_URL = this.coreUrl;
+    env.CC_TOKEN = this.token;
+    return env;
+  }
+
+  /** @param {string} id @param {AgentTerminal} term @param {number} code */
+  onExit(id, term, code) {
+    if (this.terms.get(id) !== term) return; // an older process of a resumed agent
+    this.terms.delete(id);
+    term.dispose();
+    this.broadcast('agent.exit', { id, code });
+    const stopped = this.userStopped.has(id);
+    this.update(id, (s) => {
+      if (stopped) return s.state === 'stopped' ? null : { status: withState(s, 'stopped', { tool: '' }) };
+      return s.state === 'exited' ? null : { status: withState(s, 'exited', { tool: '' }) };
+    });
+  }
+
+  agentsStop(params) {
+    const agent = this.getAgent(params && params.id);
+    const term = this.terms.get(agent.id);
+    this.userStopped.add(agent.id);
+    if (term && term.running) {
+      term.kill();
+      if (process.platform !== 'win32') {
+        // Something that ignores SIGHUP still has to go.
+        setTimeout(() => { if (term.running) try { process.kill(term.pid, 'SIGKILL'); } catch { /* gone */ } }, 3000).unref();
+      }
+    }
+    this.update(agent.id, (s) => (s.state === 'stopped' || s.state === 'exited' && !(term && term.running) ? null
+      : { status: withState(s, 'stopped', { tool: '' }) }));
+    return true;
+  }
+
+  agentsResume(params) {
+    const agent = this.getAgent(params && params.id);
+    if (this.isRunning(agent.id)) return true;
+    this.launch(agent, { resume: true });
+    return true;
+  }
+
+  agentsRemove(params) {
+    const agent = this.getAgent(params && params.id);
+    const term = this.terms.get(agent.id);
+    this.userStopped.add(agent.id);
+    if (term) {
+      this.terms.delete(agent.id);
+      term.kill();
+      term.dispose();
+    }
+    this.agents.delete(agent.id);
+    this.status.delete(agent.id);
+    const r = this.rt.get(agent.id);
+    if (r && r.transcriptPath) this.usage.forget(r.transcriptPath);
+    this.rt.delete(agent.id);
+    this.scrollbacks.delete(agent.id);
+    this.sizes.delete(agent.id);
+    this.store.saveNow();
+    this.broadcast('agent.removed', { id: agent.id });
+    return true;
+  }
+
+  agentsInput(params) {
+    if (!params || typeof params.data !== 'string') throw new RpcError(ERRORS.BAD_REQUEST, 'data must be a string');
+    this.runningTerm(params.id).write(params.data);
+    return true;
+  }
+
+  agentsSend(params) {
+    if (!params || typeof params.text !== 'string') throw new RpcError(ERRORS.BAD_REQUEST, 'text must be a string');
+    this.runningTerm(params.id).send(params.text);
+    return true;
+  }
+
+  agentsResize(params) {
+    params = params || {};
+    const agent = this.getAgent(params.id);
+    const cols = Number(params.cols);
+    const rows = Number(params.rows);
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) {
+      throw new RpcError(ERRORS.BAD_REQUEST, 'cols and rows must be whole numbers');
+    }
+    this.sizes.set(agent.id, { cols, rows });
+    const t = this.terms.get(agent.id);
+    if (t && t.running) t.resize(cols, rows);
+    return true;
+  }
+
+  /** @returns {{replay: string}} */
+  agentsAttach(params) {
+    const agent = this.getAgent(params && params.id);
+    const sb = this.scrollbacks.get(agent.id);
+    return { replay: sb ? sb.toString() : '' };
+  }
+
+  /** Is a permission prompt on screen? Older Claude versions only send a Notification for it. */
+  permissionPending(id) {
+    const s = this.status.get(id);
+    return Boolean(s && s.state === 'needs_you' && (s.permission || /permission/i.test(s.message || '')));
+  }
+
+  agentsApprove(params) {
+    const term = this.runningTerm(params && params.id);
+    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    term.write('1'); // "1. Yes" is always the first option
+    const now = Date.now();
+    this.update(params.id, (s, r) => ({ status: withState(s, 'working', {}, now), rt: { ...r, answeredAt: now } }));
+    return true;
+  }
+
+  agentsDeny(params) {
+    const term = this.runningTerm(params && params.id);
+    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    term.write('\x1b'); // Esc cancels; Claude then waits for instructions
+    const now = Date.now();
+    this.update(params.id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
+    return true;
+  }
+
+  hello() { return { version: this.version, protocol: PROTOCOL_VERSION }; }
+
+  /** Save, then end every agent process. */
+  shutdown() {
+    if (this.ticker) clearInterval(this.ticker);
+    try { this.store.saveNow(); } catch { /* best effort */ }
+    for (const [id, term] of this.terms) {
+      this.userStopped.add(id);
+      term.kill();
+    }
+  }
+}
+
+module.exports = { Core, RpcError, slug, defaultTranscriptPath, STUCK_MESSAGE, PROMPT_MARKERS };
