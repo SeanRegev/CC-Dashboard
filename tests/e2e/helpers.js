@@ -269,8 +269,12 @@ async function closeApp(app) {
 /** Visible text of the sidebar (data-testid="sidebar" preferred), falling back to the whole body. */
 async function sidebarText(page) {
   return page.evaluate(() => {
-    const el = document.querySelector('[data-testid="sidebar"], #sidebar, .sidebar, aside, nav') || document.body;
-    return /** @type {HTMLElement} */ (el).innerText || '';
+    // Try in priority order: one combined selector returns the first match in DOM order,
+    // which picked an empty <nav> in the top bar before the real sidebar.
+    const pick = ['[data-testid="sidebar"]', '#sidebar', '.sidebar', 'aside', 'nav']
+      .map((s) => document.querySelector(s)).find(Boolean) || document.body;
+    const e = /** @type {HTMLElement} */ (pick);
+    return e.innerText || e.textContent || '';
   });
 }
 
