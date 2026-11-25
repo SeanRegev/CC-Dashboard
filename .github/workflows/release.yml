@@ -1,12 +1,14 @@
-# Publishes a GitHub Release with the Windows installer when a version tag is pushed.
-#   npm run release -- patch      (bumps package.json, commits, tags vX.Y.Z; see docs/RELEASE.md)
-#   git push origin main --follow-tags
-# A tag with a suffix (v0.2.0-beta.1) becomes a pre-release.
+# Publishes a GitHub Release with the Windows installer.
+#   - push a version tag:  npm run release -- patch && git push origin main --follow-tags
+#   - or run it by hand (Actions → Release → Run workflow, on main): releases package.json's
+#     version and creates its tag vX.Y.Z on the commit it built.
+# A version with a suffix (0.2.0-beta.1) becomes a pre-release. See docs/RELEASE.md.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write # create the release and upload the installers
@@ -44,8 +46,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Tag matches package.json
-        run: node scripts/release.js --check-tag "$GITHUB_REF_NAME"
+      - name: Release tag (the pushed tag, or v<package.json version> when run by hand)
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then echo "Run it on main (it ran on $GITHUB_REF)"; exit 1; fi
+            tag="v$(node -p "require('./package.json').version")"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "$tag already exists: bump the version first (npm run release -- patch)"; exit 1
+            fi
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          node scripts/release.js --check-tag "$tag"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
@@ -71,11 +85,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          node scripts/release.js --notes "$GITHUB_REF_NAME" > release-notes.md
+          node scripts/release.js --notes "$TAG" > release-notes.md
           prerelease=""
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease="--prerelease"; fi
-          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/SHA256SUMS.txt \
-            --title "CC-Dashboard ${GITHUB_REF_NAME#v}" \
+          if [[ "$TAG" == *-* ]]; then prerelease="--prerelease"; fi
+          # --target: when run by hand the tag doesn't exist yet; gh creates it on this commit.
+          gh release create "$TAG" dist/*.exe dist/SHA256SUMS.txt --target "$GITHUB_SHA" \
+            --title "CC-Dashboard ${TAG#v}" \
             --notes-file release-notes.md --generate-notes $prerelease
 
       - name: Upload build logs (on failure)

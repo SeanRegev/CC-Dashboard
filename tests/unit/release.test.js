@@ -52,7 +52,7 @@ test('release notes link both installers of this version and say how to get past
 
 test('Release workflow: tag push only, tests and package check before publishing, safe tag handling', () => {
   const wf = /** @type {any} */ (yaml.load(fs.readFileSync(path.join(REPO, '.github', 'workflows', 'release.yml'), 'utf8')));
-  assert.deepEqual(wf.on, { push: { tags: ['v*'] } });
+  assert.deepEqual(wf.on, { push: { tags: ['v*'] }, workflow_dispatch: null }, 'a pushed v* tag, or run by hand');
   assert.deepEqual(wf.permissions, { contents: 'write' });
   const job = wf.jobs['release-windows'];
   assert.equal(job['runs-on'], 'windows-2022');
@@ -68,6 +68,12 @@ test('Release workflow: tag push only, tests and package check before publishing
   assert.ok(order(/release\.js --check-tag/) < order(/npm ci/), 'a wrong tag fails before the slow steps');
   const pub = steps[publish];
   assert.match(pub.run, /dist\/\*\.exe dist\/SHA256SUMS\.txt/);
+  assert.match(pub.run, /--target "\$GITHUB_SHA"/, 'creates the tag on the built commit when run by hand');
+  // Run by hand: only from main, never over an existing tag, and the tag is still checked.
+  const tagStep = steps[order(/release\.js --check-tag/)];
+  assert.match(tagStep.run, /refs\/heads\/main/);
+  assert.match(tagStep.run, /ls-remote --exit-code --tags origin/);
+  assert.match(tagStep.run, /--check-tag "\$tag"/);
   assert.match(pub.run, /--generate-notes/);
   assert.match(pub.run, /--prerelease/);
   assert.equal(pub.env.GH_TOKEN, '${{ github.token }}');
