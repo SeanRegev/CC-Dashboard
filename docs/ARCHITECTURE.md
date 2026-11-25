@@ -33,7 +33,7 @@ Every agent is a real `claude` process in a real terminal; CC-Dashboard never re
 ## Decisions
 
 - **Plain JavaScript (CommonJS in main/core, ES modules in the renderer), no bundler.** Type hints with JSDoc and `// @ts-check`. Fewer moving parts on Windows.
-- **The core runs on Electron's own Node** in the installed app (`ELECTRON_RUN_AS_NODE=1`), so users install nothing else. In development and tests it runs on system Node. `node-pty` is rebuilt for Electron by electron-builder on the Windows CI machine.
+- **The core runs on Electron's own Node** in the installed app (`ELECTRON_RUN_AS_NODE=1`), so users install nothing else. In development and tests it runs on system Node. `node-pty` (1.1+) is a Node-API addon with prebuilt Windows binaries, so the same binary works under both and nothing is compiled or rebuilt.
 - **Discovery:** the core writes `~/.cc-dashboard/core.json` = `{ "port", "token", "pid", "version" }` (file mode 600). The app reads it; if missing or the pid is dead, it starts the core detached.
 - **Security:** the core listens on 127.0.0.1 only; every WebSocket and HTTP request must carry the token.
 - **Status comes from Claude Code hooks**, passed with `claude --settings <file>`; the user's own settings are never edited.
