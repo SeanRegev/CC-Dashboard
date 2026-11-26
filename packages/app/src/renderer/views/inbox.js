@@ -10,6 +10,7 @@
 import { h, icon, kbd } from '../dom.js';
 import { sortAgents, formatRelativeTime } from '../logic.js';
 import { roleBadge } from '../roles.js';
+import { externalInboxRow } from '../components/external.js';
 import { approvalButtons, readablePrompt, optionOf, toolLabel, answerPrompt } from '../components/approval.js';
 
 /** Agents waiting on you, longest-waiting first. @param {Iterable<any>} entries */
@@ -85,20 +86,22 @@ export function createInboxView(ctx) {
 
   function update() {
     const items = waitingEntries(ctx.state().entries.values());
+    // M3 Outside UI: outside sessions that wait for you (view only, not part of the keyboard selection)
+    const outside = ctx.state().external.filter((/** @type {any} */ x) => x.state === 'needs_you');
     let i = selId ? items.findIndex((e) => e.agent.id === selId) : -1;
     // The selected one was answered: keep the place in the list.
     if (i < 0) i = Math.min(selIndex, items.length - 1);
     selIndex = Math.max(0, i);
     selId = items[selIndex] ? items[selIndex].agent.id : null;
-    count.textContent = items.length ? String(items.length) : '';
+    count.textContent = items.length + outside.length ? String(items.length + outside.length) : '';
     drawn = items.map((e) => ({ id: e.agent.id, prompt: readablePrompt(e.status) }));
     const hadFocus = el.contains(document.activeElement);
-    if (!items.length) {
+    if (!items.length && !outside.length) {
       list.replaceChildren(h('div', { class: 'inbox-empty' },
         h('div', { class: 'empty-title' }, 'Nothing needs you'),
         h('div', { class: 'empty-sub' }, 'Agents waiting for an answer, in any space, show up here.')));
     } else {
-      list.replaceChildren(...items.map((e, j) => row(e, j === selIndex)));
+      list.replaceChildren(...items.map((e, j) => row(e, j === selIndex)), ...outside.map((x) => externalInboxRow(ctx, x)));
       const sel = /** @type {HTMLElement|null} */ (list.querySelector('.inbox-row.sel'));
       if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'nearest' });
     }
