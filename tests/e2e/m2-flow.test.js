@@ -24,7 +24,7 @@ const view = () => app.evaluate('window.__cc.snapshot().view');
 const goView = async (/** @type {string} */ v) => { await app.click(`.view-switch button[data-view="${v}"]`); await app.waitFor(`window.__cc.snapshot().view === ${q(v)}`); };
 const slots = (/** @type {string} */ id) => app.evaluate(`document.querySelectorAll('.term-slot[data-agent=${q(id)}]').length`);
 const contextMenu = (/** @type {string} */ sel) => app.evaluate(`(() => { const el = document.querySelector(${q(sel)}); const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 20 })); })()`);
-const tileIds = () => app.evaluate(`[...document.querySelectorAll('.tile')].map((t) => t.dataset.agent)`);
+const tileIds = () => app.evaluate(`[...document.querySelectorAll('.tile[data-agent]')].map((t) => t.dataset.agent)`);
 /** attaches minus detaches the app made for an agent so far (what the core still holds open for it) */
 const netAttach = (/** @type {string} */ id) => calls('agents.attach').filter((c) => c.params.id === id).length - calls('agents.detach').filter((c) => c.params.id === id).length;
 const F2 = { code: 'F2', keyCode: 113 };
@@ -43,7 +43,7 @@ test.after(async () => {
 
 test('1. a space in the sidebar opens its Grid; the Inbox knows who waits', async () => {
   await app.click('.space[data-space="cc-dashboard"]');
-  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelectorAll('.tile').length === 5`);
+  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelectorAll('.tile[data-agent]').length === 5`);
   assert.deepEqual(await tileIds(), ['refactor-auth', 'fix-flaky-tests', 'api-client', 'docs-pass', 'old-spike']);
   await goView('inbox');
   await app.waitFor(`document.querySelectorAll('.inbox-row').length === 2`);
