@@ -219,7 +219,8 @@ test('takeOver: SIGTERM; when ignored and still the same process, SIGKILL; then 
   const agent = await ext.takeOver({ id: 'ext:sess-1' });
   assert.deepEqual(state.signals, [[4242, 'SIGTERM'], [4242, 'SIGKILL']]);
   assert.equal(agent.id, 'adopted');
-  assert.deepEqual(adopted, [{ spaceId: 'proj', name: 'outside one', cwd, sessionId: 'sess-1', transcriptPath: '' }]);
+  assert.deepEqual(adopted.map(({ log, ...rest }) => rest), [{ spaceId: 'proj', name: 'outside one', cwd, sessionId: 'sess-1', transcriptPath: '' }]);
+  assert.deepEqual(adopted[0].log, { entries: [], subagents: [] }, 'its (empty) log is handed over');
   assert.deepEqual(ext.list(), []);
   const last = events.filter(([e]) => e === 'external.changed').pop();
   assert.deepEqual(last[1].sessions, []);
@@ -308,4 +309,20 @@ test('activity and subagents from fixture transcripts; logs capped at 2000; acti
   ext.append(rec, Array.from({ length: 2500 }, (_, i) => ({ at: i, subagentId: '', kind: 'notice', text: String(i) })));
   assert.equal(rec.log.length, X.MAX_LOG);
   assert.equal(rec.log[rec.log.length - 1].text, '2499');
+});
+
+test('takeOver refuses a conversation that is open in two places, and signals nothing', async (t) => {
+  const { ext, writeReg, state } = setup(t, { platform: 'linux' });
+  state.alive.add(4343);
+  writeReg({ pid: 4242, sessionId: 'sess-1', status: 'idle' });
+  writeReg({ pid: 4343, sessionId: 'sess-1', status: 'idle' });
+  ext.start();
+  assert.equal(ext.list().length, 1, 'listed once');
+  await assert.rejects(ext.takeOver({ id: 'ext:sess-1', force: true }), (e) => e.code === 'not_allowed' && /2 places/.test(e.message));
+  assert.deepEqual(state.signals, []);
+  // Once the other copy is gone, it can be taken over.
+  state.alive.delete(4343);
+  state.onSignal = (pid) => state.alive.delete(pid);
+  const agent = await ext.takeOver({ id: 'ext:sess-1' });
+  assert.equal(agent.id, 'adopted');
 });

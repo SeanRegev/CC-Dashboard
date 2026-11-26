@@ -324,6 +324,22 @@ class External {
   }
 
   /**
+   * Pids of every live registry entry for this conversation.
+   * @param {string} sessionId @returns {number[]}
+   */
+  liveCopies(sessionId) {
+    let names = [];
+    try { names = fs.readdirSync(this.sessionsDir); } catch { names = []; }
+    const pids = [];
+    for (const n of names) {
+      if (!n.endsWith('.json')) continue;
+      const reg = this.readRegistry(path.join(this.sessionsDir, n));
+      if (reg && reg.sessionId === sessionId && this.sys.alive(reg.pid) && !pids.includes(reg.pid)) pids.push(reg.pid);
+    }
+    return pids.sort((a, b) => a - b);
+  }
+
+  /**
    * Read the registry folder and bring the session list up to date.
    * @returns {boolean} something changed
    */
@@ -700,6 +716,12 @@ class External {
         throw new RpcError(ERRORS.NOT_ALLOWED, 'that session already belongs to CC-Dashboard');
       }
       if (!this.sys.alive(reg.pid)) throw new RpcError(ERRORS.NOT_FOUND, 'that session has ended');
+      // The same conversation can be open in more than one place (`claude --resume` twice). The list shows
+      // one of them; ending "the" session would be a guess, so refuse until only one is left.
+      const copies = this.liveCopies(reg.sessionId);
+      if (copies.length > 1) {
+        throw new RpcError(ERRORS.NOT_ALLOWED, `this conversation is open in ${copies.length} places (pids ${copies.join(', ')}): close the others first`);
+      }
       let cwdOk = false;
       try { cwdOk = fs.statSync(reg.cwd).isDirectory(); } catch { cwdOk = false; }
       if (!cwdOk) throw new RpcError(ERRORS.BAD_REQUEST, `its folder is gone: ${reg.cwd}`);
