@@ -19,7 +19,7 @@ import { createBoardView } from './views/board.js';
 import { createInboxView } from './views/inbox.js';
 import { createLibraryView } from './views/library.js';
 import { createDashboardsView } from './views/dashboards.js';
-import { openSettingsDialog, openAgentEditDialog, applySettings } from './views/settings.js';
+import { openSettingsDialog, openAgentEditDialog, applySettings, prepareNotification, appMenuButton } from './views/settings.js';
 
 /** @type {{platform:string, getConnection:() => Promise<{port:number, token:string}|null>, notify:(t:string, b:string, id?:string) => Promise<any>, pickFolder:() => Promise<string|null>, onSelectAgent:(fn:(id:string)=>void) => any}} */
 const bridge = /** @type {any} */ (window).cc || {
@@ -170,6 +170,7 @@ client.on('notify', (/** @type {any} */ n) => {
   if (!n) return;
   // Don't ping about an agent you are looking at right now.
   if (n.agentId && document.hasFocus() && visibleIds().has(n.agentId)) return;
+  if (!prepareNotification(n)) return; // Settings → Notifications / Sound
   bridge.notify(n.title || 'CC-Dashboard', n.body || '', n.agentId);
 });
 bridge.onSelectAgent((id) => { if (S.entries.has(id)) openAgent(id); });
@@ -408,7 +409,8 @@ function renderChrome() {
   mount(els.actions,
     viewSwitch(needs),
     needs ? h('button', { class: 'needs-pill', title: 'Open the agent that has waited longest', onclick: openNextNeedy }, `◆ ${needs} need${needs === 1 ? 's' : ''} you`) : null,
-    h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')));
+    h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')),
+    appMenuButton(ctx));
   document.title = needs ? `(${needs}) CC-Dashboard` : 'CC-Dashboard';
 
   renderSidebar(els.sidebar, {
@@ -577,6 +579,7 @@ function newAgent(preset = {}) {
     if (p.model) params.model = p.model;
     if (p.mode) params.mode = p.mode;
     if (p.worktree) params.worktree = true;
+    if (p.role) params.role = p.role;
     const agent = await client.call('agents.create', params);
     if (!S.entries.has(agent.id)) {
       S.entries.set(agent.id, { agent, status: { agentId: agent.id, state: 'starting', counts: { tools: 0, turns: 0, errors: 0, subagents: 0 }, files: [], usage: { total: 0, context: 0, contextPct: 0, model: agent.model || '' }, history: [], updatedAt: Date.now() }, running: true });

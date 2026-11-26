@@ -3,7 +3,7 @@
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   height: 18px; padding: 0 7px; border-radius: 999px;
   font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
-  color: var(--role-fg, var(--text)); background: var(--role-bg, rgba(255,255,255,.06));
+  color: var(--role-fg, var(--text)); background: var(--role-bg, var(--tint-2));
   border: 1px solid var(--role-line, transparent);
 }
 .role-badge.compact { padding: 0 4px; }
@@ -16,4 +16,24 @@
 .role-docs     { --role-fg: #E6B98A; --role-bg: rgba(230,185,138,.12); }
 .role-debug    { --role-fg: #EE8F84; --role-bg: rgba(238,143,132,.12); }
 .role-design   { --role-fg: #F09BC4; --role-bg: rgba(240,155,196,.12); }
-.role-custom   { --role-fg: var(--text); --role-bg: rgba(255,255,255,.07); --role-line: var(--line-soft); }
+.role-custom   { --role-fg: var(--text); --role-bg: var(--tint-2); --role-line: var(--line-soft); }
+
+/* light theme: darker text on a light tint (>= 4.5:1 on the badge background) */
+:root[data-theme="light"] .role-main { --role-fg: #8A5A00; --role-bg: rgba(176,112,0,.14); --role-line: rgba(176,112,0,.4); }
+:root[data-theme="light"] .role-worker { --role-fg: #44607F; --role-bg: rgba(68,96,127,.12); }
+:root[data-theme="light"] .role-reviewer { --role-fg: #6B3FB0; --role-bg: rgba(107,63,176,.11); }
+:root[data-theme="light"] .role-research { --role-fg: #1D6F69; --role-bg: rgba(29,111,105,.11); }
+:root[data-theme="light"] .role-tests { --role-fg: #2C7A2A; --role-bg: rgba(44,122,42,.11); }
+:root[data-theme="light"] .role-docs { --role-fg: #8A4F14; --role-bg: rgba(138,79,20,.11); }
+:root[data-theme="light"] .role-debug { --role-fg: #B02F25; --role-bg: rgba(176,47,37,.10); }
+:root[data-theme="light"] .role-design { --role-fg: #B0306C; --role-bg: rgba(176,48,108,.10); }
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] .role-main { --role-fg: #8A5A00; --role-bg: rgba(176,112,0,.14); --role-line: rgba(176,112,0,.4); }
+  :root[data-theme="system"] .role-worker { --role-fg: #44607F; --role-bg: rgba(68,96,127,.12); }
+  :root[data-theme="system"] .role-reviewer { --role-fg: #6B3FB0; --role-bg: rgba(107,63,176,.11); }
+  :root[data-theme="system"] .role-research { --role-fg: #1D6F69; --role-bg: rgba(29,111,105,.11); }
+  :root[data-theme="system"] .role-tests { --role-fg: #2C7A2A; --role-bg: rgba(44,122,42,.11); }
+  :root[data-theme="system"] .role-docs { --role-fg: #8A4F14; --role-bg: rgba(138,79,20,.11); }
+  :root[data-theme="system"] .role-debug { --role-fg: #B02F25; --role-bg: rgba(176,47,37,.10); }
+  :root[data-theme="system"] .role-design { --role-fg: #B0306C; --role-bg: rgba(176,48,108,.10); }
+}

@@ -1,6 +1,7 @@
 // @ts-check
 /** Modal dialogs: new agent, quick switcher. Plus toasts. */
 import { h, icon, kbd } from './dom.js';
+import { createRolePicker } from './components/role-picker.js';
 import { filterAgents, describeActivity, suggestAgentName, stateLabel } from './logic.js';
 
 const root = () => /** @type {HTMLElement} */ (document.getElementById('overlay-root'));
@@ -15,7 +16,7 @@ export function closeModal() { if (current) current.close(); }
 /**
  * @param {string} kind @param {HTMLElement} card @param {{top?: boolean, onClose?: () => void}} [o]
  */
-function openModal(kind, card, o = {}) {
+export function openModal(kind, card, o = {}) {
   closeModal();
   const prevFocus = /** @type {HTMLElement|null} */ (document.activeElement);
   const backdrop = h('div', { class: `modal-backdrop${o.top ? ' top' : ''}`, dataset: { modal: kind } }, card);
@@ -38,7 +39,7 @@ function openModal(kind, card, o = {}) {
 /**
  * Segmented control. @param {string} name @param {Array<[string,string]>} options value,label @param {string} value
  */
-function segmented(name, options, value) {
+export function segmented(name, options, value) {
   const wrap = h('div', { class: 'segmented', role: 'radiogroup', dataset: { name } });
   for (const [v, label] of options) {
     const b = h('button', { type: 'button', class: `seg${v === value ? ' on' : ''}`, role: 'radio', 'aria-checked': String(v === value), dataset: { value: v } }, label);
@@ -57,14 +58,28 @@ function segmented(name, options, value) {
 /**
  * New-agent dialog.
  * @param {{spaces:any[], entries:any[], spaceId:string|null, mod:string}} s
- * @param {(params:{spaceId:string, name:string, prompt:string, model:string, mode:string, worktree:boolean}) => Promise<void>} onCreate
+ * @param {(params:{spaceId:string, name:string, prompt:string, model:string, mode:string, worktree:boolean, role?:{id:string,label:string,emoji:string}}) => Promise<void>} onCreate
  */
 export function openNewAgentDialog(s, onCreate) {
   const spaceId = s.spaceId || (s.spaces[0] && s.spaces[0].id) || '';
+  /** The space's current Main agent, if any. @param {string} sid */
+  const mainOf = (sid) => s.entries.find((e) => e.agent.spaceId === sid && e.agent.role && e.agent.role.id === 'main');
+  /** Default role: Main when the space has none yet, else Worker. @param {string} sid */
+  const defaultRole = (sid) => (mainOf(sid) ? 'worker' : 'main');
   const spaceSel = /** @type {HTMLSelectElement} */ (h('select', { id: 'na-space', class: 'input' },
     s.spaces.map((sp) => h('option', { value: sp.id, selected: sp.id === spaceId }, sp.name))));
   const name = /** @type {HTMLInputElement} */ (h('input', { id: 'na-name', class: 'input', placeholder: suggestAgentName(s.entries, spaceId), autocomplete: 'off', spellcheck: 'false', maxlength: '60' }));
-  spaceSel.addEventListener('change', () => { name.placeholder = suggestAgentName(s.entries, spaceSel.value); });
+  let roleTouched = false;
+  const rolePicker = createRolePicker({
+    value: { id: defaultRole(spaceId) },
+    mainHolder: () => { const m = mainOf(spaceSel.value); return m ? m.agent.name : null; },
+    onChange: () => { roleTouched = true; },
+  });
+  spaceSel.addEventListener('change', () => {
+    name.placeholder = suggestAgentName(s.entries, spaceSel.value);
+    if (!roleTouched) rolePicker.select(defaultRole(spaceSel.value));
+    else rolePicker.refreshNote();
+  });
   const prompt = /** @type {HTMLTextAreaElement} */ (h('textarea', { id: 'na-prompt', class: 'input', rows: '4', placeholder: 'What should this agent do? (optional: you can also type in its terminal)' }));
   if (s.prompt) prompt.value = s.prompt;
   const model = segmented('model', [['', 'Default'], ['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], '');
@@ -83,6 +98,7 @@ export function openNewAgentDialog(s, onCreate) {
         h('label', { class: 'field' }, h('span', { class: 'label' }, 'Space'), spaceSel),
         h('label', { class: 'field' }, h('span', { class: 'label' }, 'Name'), name)),
       h('label', { class: 'field' }, h('span', { class: 'label' }, 'First prompt'), prompt),
+      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Role'), rolePicker.el),
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Model'), model),
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Permissions'), mode,
         h('span', { class: 'hint' }, 'Ask: approve each tool. Accept edits: file edits go through. Plan: read-only planning.')),
@@ -95,10 +111,14 @@ export function openNewAgentDialog(s, onCreate) {
 
   const submit = async () => {
     if (!spaceSel.value) { err.textContent = 'Add a space first.'; return; }
+    const role = rolePicker.get();
+    if (!role) { err.textContent = 'Give the custom role a label.'; return; }
     createBtn.disabled = true;
     err.textContent = '';
     try {
       await onCreate({
+        // sent only when it differs from the default, which the core applies anyway
+        ...(role.id !== defaultRole(spaceSel.value) ? { role } : {}),
         spaceId: spaceSel.value,
         name: name.value.trim() || name.placeholder,
         prompt: prompt.value.trim(),

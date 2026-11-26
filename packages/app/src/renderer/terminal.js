@@ -20,6 +20,35 @@ export const TERMINAL_THEME = Object.freeze({
   brightBlue: '#A2C1F6', brightMagenta: '#CFC7F7', brightCyan: '#A3DAD6', brightWhite: '#F6F2EE',
 });
 
+export const TERMINAL_THEME_LIGHT = Object.freeze({
+  background: '#FAF8F6',
+  foreground: '#2A2523',
+  cursor: '#C4553A',
+  cursorAccent: '#FAF8F6',
+  selectionBackground: 'rgba(196, 85, 58, 0.25)',
+  selectionInactiveBackground: 'rgba(196, 85, 58, 0.14)',
+  black: '#2A2523', red: '#B8342A', green: '#2B7A2B', yellow: '#8A6100',
+  blue: '#2A5FB8', magenta: '#7A47C0', cyan: '#1D7A74', white: '#7D746C',
+  brightBlack: '#6E6761', brightRed: '#D14A3F', brightGreen: '#3B953B', brightYellow: '#A67700',
+  brightBlue: '#3F78D6', brightMagenta: '#9560DA', brightCyan: '#2A948D', brightWhite: '#A39A91',
+});
+
+/** Appearance every terminal (existing and new) uses; set with setTerminalAppearance. */
+const appearance = { theme: TERMINAL_THEME, fontSize: 13, fontFamily: TERMINAL_FONT };
+/** @type {Set<TerminalView>} */
+const live = new Set();
+
+/**
+ * Set theme and font on every TerminalView, and on the ones created later; refits them.
+ * @param {{light?: boolean, fontSize?: number, fontFamily?: string}} o  light: use the light colour theme
+ */
+export function setTerminalAppearance(o) {
+  if (o.light !== undefined) appearance.theme = o.light ? TERMINAL_THEME_LIGHT : TERMINAL_THEME;
+  if (typeof o.fontSize === 'number') appearance.fontSize = o.fontSize;
+  if (typeof o.fontFamily === 'string' && o.fontFamily) appearance.fontFamily = o.fontFamily;
+  for (const v of live) v.applyAppearance();
+}
+
 export class TerminalView {
   /**
    * @param {{
@@ -46,8 +75,8 @@ export class TerminalView {
 
     const g = /** @type {any} */ (globalThis);
     this.term = new g.Terminal({
-      fontFamily: TERMINAL_FONT,
-      fontSize: 13,
+      fontFamily: appearance.fontFamily,
+      fontSize: appearance.fontSize,
       lineHeight: 1,  // >1 leaves gaps in box-drawing characters with the DOM renderer
       letterSpacing: 0,
       cursorBlink: true,
@@ -57,7 +86,7 @@ export class TerminalView {
       allowProposedApi: true,
       macOptionIsMeta: true,
       drawBoldTextInBrightColors: false,
-      theme: TERMINAL_THEME,
+      theme: appearance.theme,
     });
     this.fitAddon = new g.FitAddon.FitAddon();
     this.term.loadAddon(this.fitAddon);
@@ -69,6 +98,18 @@ export class TerminalView {
     this.term.onBinary((/** @type {string} */ data) => this.client.send('agents.input', { id: this.id, data }));
     this.term.onResize((/** @type {{cols:number, rows:number}} */ s) => this.sendSize(s.cols, s.rows));
     this.term.textarea && this.term.textarea.addEventListener('focus', () => o.onFocus && o.onFocus());
+    live.add(this);
+  }
+
+  /** Take the shared theme and font (see setTerminalAppearance) and refit. */
+  applyAppearance() {
+    if (this.disposed) return;
+    const o = this.term.options;
+    o.theme = { ...appearance.theme };
+    o.fontSize = appearance.fontSize;
+    o.fontFamily = appearance.fontFamily;
+    this.lastSize = '';
+    this.fit(true);
   }
 
   /** Attach to the agent and write its scrollback. */
@@ -133,6 +174,7 @@ export class TerminalView {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    live.delete(this);
     this.client.detach(this.id);
     this.term.dispose();
     this.el.remove();
