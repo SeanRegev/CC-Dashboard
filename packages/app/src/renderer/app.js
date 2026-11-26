@@ -767,6 +767,9 @@ setInterval(scheduleRender, 20000);
   liveTerminals: () => [...S.views.keys()],
   /** How many times renderChrome ran (to catch render loops). */
   renders: () => renderCount,
+  /** M3: what the activity drawer shows, and a way to open it for a session without a tile (tests). */
+  activityFor: () => (S.activityFor ? { ...S.activityFor } : null),
+  openActivity: (/** @type {string} */ id, /** @type {string} [sub] */ sub) => ctx.openActivity(id, sub),
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 

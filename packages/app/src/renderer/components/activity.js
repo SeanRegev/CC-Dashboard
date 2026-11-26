@@ -14,7 +14,7 @@ import {
   listParams, initialFilter, describeEntry, atBottom, badgeCount, stripModel, stripKey, windowOf,
 } from './activity-logic.js';
 
-/** The drawer's data for the session it shows. @typedef {{agentId: string, filter: string|null, entries: any[], more: boolean, loaded: boolean, error: string, limit: number, following: boolean, unseen: number}} Feed */
+/** The drawer's data for the session it shows. @typedef {{agentId: string, filter: string|null, entries: any[], more: boolean, loaded: boolean, error: string, limit: number, following: boolean, unseen: number, pinOld: boolean}} Feed */
 
 /** @param {import('../context.js').ViewContext} ctx @returns {{el: HTMLElement, update: () => void}} */
 export function createActivityDrawer(ctx) {
@@ -49,7 +49,7 @@ export function createActivityDrawer(ctx) {
   });
   scroller.addEventListener('scroll', () => {
     if (!feed) return;
-    feed.following = atBottom(scroller);
+    feed.following = !feed.pinOld && atBottom(scroller); // old lines are never "the end"
     if (feed.following) feed.unseen = 0;
     syncJump();
   });
@@ -64,6 +64,12 @@ export function createActivityDrawer(ctx) {
   }
 
   function scrollToEnd() {
+    if (feed && feed.pinOld) { // the window shows old lines: fetch the newest page again
+      feed = { ...feed, entries: [], more: false, loaded: false, limit: MAX_LINES, following: true, unseen: 0, pinOld: false };
+      renderFeed();
+      load();
+      return;
+    }
     scroller.scrollTop = scroller.scrollHeight;
     if (feed) { feed.following = true; feed.unseen = 0; }
     syncJump();
@@ -100,9 +106,12 @@ export function createActivityDrawer(ctx) {
       const before = scroller.scrollHeight;
       f.entries = mergeEntries(f.entries, got);
       f.more = !!(r && r.more);
-      f.limit += got.length; // the window grows by the page the user asked for
+      // At most MAX_LINES are rendered: past that the window stays on the old end ("Jump to latest" returns).
+      const total = filterEntries(f.entries, f.filter).length;
+      if (total > f.limit) { f.pinOld = true; f.following = false; }
       renderFeed();
       scroller.scrollTop += scroller.scrollHeight - before; // keep the line the user was reading
+      syncJump();
     } catch (e) {
       ctx.toast(`Could not load older lines: ${/** @type {any} */ (e).message || e}`, 'error');
     } finally {
@@ -130,10 +139,11 @@ export function createActivityDrawer(ctx) {
   function renderFeed() {
     const f = feed;
     if (!f) return;
-    const shown = windowOf(filterEntries(f.entries, f.filter), f.limit);
+    const all = filterEntries(f.entries, f.filter);
+    const shown = f.pinOld ? all.slice(0, f.limit) : windowOf(all, f.limit);
     const follow = f.following;
     lines.replaceChildren(...shown.map((e) => row(describe(e, f), f)));
-    olderBtn.hidden = !(f.more || filterEntries(f.entries, f.filter).length > shown.length);
+    olderBtn.hidden = !f.more;
     status.textContent = f.error || (!f.loaded ? 'Loading…' : shown.length ? '' : 'No activity yet.');
     status.classList.toggle('is-error', !!f.error);
     if (follow) scroller.scrollTop = scroller.scrollHeight;
@@ -149,6 +159,7 @@ export function createActivityDrawer(ctx) {
     const add = fresh.filter((e) => !seen.has(e.seq));
     f.entries = mergeEntries(f.entries, incoming, MAX_LINES * 2);
     if (!f.loaded || !add.length) return;
+    if (f.pinOld) { f.unseen += add.length; syncJump(); return; } // reading old lines: only count the new ones
     const oldTop = lines.firstElementChild;
     const lastSeq = lines.lastElementChild ? Number(/** @type {HTMLElement} */ (lines.lastElementChild).dataset.seq) : -1;
     if (add[0].seq < lastSeq) { renderFeed(); return; } // out of order: rebuild
@@ -178,7 +189,7 @@ export function createActivityDrawer(ctx) {
   /** @param {string|null} filter */
   function setFilter(filter) {
     if (!feed || feed.filter === filter) return;
-    feed = { ...feed, filter, entries: [], more: false, loaded: false, error: '', limit: MAX_LINES, following: true, unseen: 0 };
+    feed = { ...feed, filter, entries: [], more: false, loaded: false, error: '', limit: MAX_LINES, following: true, unseen: 0, pinOld: false };
     renderList();
     renderFeed();
     load();
@@ -242,6 +253,7 @@ export function createActivityDrawer(ctx) {
     if (!f) {
       if (!el.hidden) {
         el.hidden = true;
+        lines.replaceChildren(); list.replaceChildren(); // nothing stale when it opens for another session
         document.getElementById('app')?.classList.remove('has-activity');
         if (timer) { clearInterval(timer); timer = null; }
         if (prevFocus && prevFocus.isConnected && el.contains(document.activeElement)) prevFocus.focus();
@@ -259,7 +271,7 @@ export function createActivityDrawer(ctx) {
     }
     if (f !== lastFor) {
       lastFor = f;
-      feed = { agentId: f.agentId, filter: initialFilter(f), entries: [], more: false, loaded: false, error: '', limit: MAX_LINES, following: true, unseen: 0 };
+      feed = { agentId: f.agentId, filter: initialFilter(f), entries: [], more: false, loaded: false, error: '', limit: MAX_LINES, following: true, unseen: 0, pinOld: false };
       renderedKey = '';
       renderFeed();
       load();

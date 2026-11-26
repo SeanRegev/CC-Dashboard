@@ -95,7 +95,7 @@
 .sub-emoji { flex: none; font-size: 11px; }
 .sub-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sub-tool { flex: none; color: var(--faint); font-family: var(--mono); font-size: 10.5px; max-width: 9ch; overflow: hidden; text-overflow: ellipsis; }
-.sub-chip.needs { border-color: rgba(var(--needs-rgb), .6); background: rgba(var(--needs-rgb), .14); }
+.sub-chip.needs { max-width: 62%; border-color: rgba(var(--needs-rgb), .6); background: rgba(var(--needs-rgb), .14); }
 .sub-chip.needs .sub-tool { color: var(--needs-ink); font-weight: 650; }
 .sub-pill.done { color: var(--working); }
 .sub-pill.failed { color: var(--danger-text); }
@@ -114,6 +114,6 @@
   font: inherit; font-size: 11.5px; cursor: pointer; white-space: nowrap;
 }
 .appr-askedby:hover { background: rgba(var(--needs-rgb), .2); }
-.appr-askedby .by { color: var(--faint); }
+.appr-askedby .by { color: var(--muted); }
 .appr-askedby .by-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .approval.compact .appr-askedby { flex: 0 1 auto; }
