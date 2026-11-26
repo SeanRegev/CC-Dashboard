@@ -24,7 +24,8 @@ test.before(async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-e2e-dash-'));
   mock = await startMockCore({ home, static: true });
   app = await launchApp({ env: { CC_HOME: home }, size: '1280x800' });
-  await app.waitFor(`document.querySelector('[data-testid="sidebar"]')`);
+  // The sidebar element is in the static HTML; wait for the switcher app.js renders instead.
+  await app.waitFor(`document.querySelector('.view-switch button[data-view="dashboards"]')`);
   await app.evaluate(`document.querySelector('.view-switch button[data-view="dashboards"]').click()`);
   await app.waitFor(`document.querySelectorAll('.dash-card').length >= 5`);
 });
