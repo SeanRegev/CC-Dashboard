@@ -14,6 +14,8 @@ import { renderSidebar } from './views/sidebar.js';
 import { openNewAgentDialog, openQuickSwitcher, isModalOpen, foreignModalOpen, modalKind, closeModal, toast } from './dialogs.js';
 import { roleBadge } from './roles.js';
 import { approvalButtons, updateAttention } from './components/approval.js';
+import { createActivityDrawer } from './components/activity.js';
+import { toggleTarget } from './components/activity-logic.js';
 import { createGridView } from './views/grid.js';
 import { createBoardView } from './views/board.js';
 import { createInboxView } from './views/inbox.js';
@@ -55,7 +57,15 @@ const S = {
   loaded: false,
   /** @type {import('./context.js').ViewName} main area: terminal panes, or one of the views */
   view: 'terminals',
+  /** @type {Map<string, any[]>} v3: agentId (or "ext:<sessionId>") → Subagent[], oldest first */
+  subagents: new Map(),
+  /** @type {any[]} v3: ExternalSession[] (Claude sessions the app did not start) */
+  external: [],
+  /** @type {{agentId: string, subagentId?: string}|null} v3: whose activity log the drawer shows */
+  activityFor: null,
 };
+/** @type {Set<(agentId: string, entries: any[]) => void>} v3: listeners for new activity lines */
+const activityListeners = new Set();
 
 const client = new CoreClient({ getConnection: () => bridge.getConnection(), clientName: 'cc-dashboard-app' });
 
@@ -85,9 +95,17 @@ function scheduleRender() {
 
 // ---------- data ----------
 async function loadAll() {
-  const [spaces, list] = await Promise.all([client.call('spaces.list'), client.call('agents.list')]);
+  const [spaces, list, external] = await Promise.all([client.call('spaces.list'), client.call('agents.list'),
+    client.call('external.list').catch(() => [])]);
   S.spaces = spaces || [];
   S.entries = new Map((list || []).map((/** @type {any} */ e) => [e.agent.id, e]));
+  S.external = Array.isArray(external) ? external : [];
+  // Subagents load in the background: the first paint (and a reconnect's re-layout) must not wait for one
+  // request per session. What was there before stays on screen until each list is replaced.
+  const sessionIds = new Set([...S.entries.keys(), ...S.external.map((x) => x.id)]);
+  for (const id of [...S.subagents.keys()]) if (!sessionIds.has(id)) S.subagents.delete(id);
+  Promise.all([...sessionIds].map(loadSubagents)).then(scheduleRender, () => {});
+  if (S.activityFor && !S.entries.has(S.activityFor.agentId) && !S.external.some((x) => x.id === S.activityFor?.agentId)) S.activityFor = null;
   if (!S.loaded) {
     S.loaded = true;
     const ui = loadUi();
@@ -111,6 +129,14 @@ async function loadAll() {
   }
   layoutPanes();
   renderChrome();
+}
+
+/** v3: (re)load one session's subagents. @param {string} agentId */
+async function loadSubagents(agentId) {
+  try {
+    const list = await client.call('subagents.list', { agentId });
+    S.subagents.set(agentId, Array.isArray(list) ? list : []);
+  } catch { S.subagents.set(agentId, []); }
 }
 
 client.on('connection', (/** @type {any} */ st) => {
@@ -140,12 +166,40 @@ client.on('agent.status', (/** @type {any} */ st) => {
 client.on('agent.created', (/** @type {any} */ d) => {
   if (!d || !d.agent) return;
   S.entries.set(d.agent.id, { agent: d.agent, status: d.status, running: true });
+  // A taken-over session arrives with the subagents it already had.
+  loadSubagents(d.agent.id).then(scheduleRender);
   scheduleRender();
 });
 client.on('agent.removed', (/** @type {any} */ d) => {
   if (!d) return;
   closeTab(d.id);
   S.entries.delete(d.id);
+  S.subagents.delete(d.id);
+  if (S.activityFor && S.activityFor.agentId === d.id) S.activityFor = null;
+  scheduleRender();
+});
+// ---- v3: subagents, activity, outside sessions ----
+client.on('subagent.updated', (/** @type {any} */ d) => {
+  if (!d || !d.agentId || !d.subagent) return;
+  const list = S.subagents.get(d.agentId) || [];
+  const i = list.findIndex((s) => s.id === d.subagent.id);
+  if (i >= 0) list[i] = d.subagent; else list.push(d.subagent);
+  S.subagents.set(d.agentId, list);
+  scheduleRender();
+});
+client.on('activity', (/** @type {any} */ d) => {
+  if (!d || !d.agentId || !Array.isArray(d.entries)) return;
+  for (const fn of activityListeners) { try { fn(d.agentId, d.entries); } catch (e) { console.error(e); } }
+});
+client.on('external.changed', (/** @type {any} */ d) => {
+  const before = new Set(S.external.map((x) => x.id));
+  S.external = (d && Array.isArray(d.sessions)) ? d.sessions : [];
+  const now = new Set(S.external.map((x) => x.id));
+  for (const id of before) if (!now.has(id)) {
+    S.subagents.delete(id);
+    if (S.activityFor && S.activityFor.agentId === id) S.activityFor = null;
+  }
+  for (const id of now) if (!before.has(id)) loadSubagents(id).then(scheduleRender);
   scheduleRender();
 });
 client.on('agent.exit', (/** @type {any} */ d) => {
@@ -417,6 +471,7 @@ function renderChrome() {
     h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')),
     appMenuButton(ctx));
   document.title = needs ? `(${needs}) CC-Dashboard` : 'CC-Dashboard';
+  activityDrawer.update(); // M3 Activity UI
   updateAttention(ctx); // taskbar badge + window flash (Approvals track)
 
   renderSidebar(els.sidebar, {
@@ -509,7 +564,24 @@ const ctx = {
   platform,
   terminal: (id) => ensureView(id, { tab: false }),
   releaseTerminal: (id) => releaseTerminal(id),
+  subagents: (agentId) => S.subagents.get(agentId) || [],
+  external: () => S.external,
+  openActivity: (agentId, subagentId) => { S.activityFor = { agentId, ...(subagentId ? { subagentId } : {}) }; scheduleRender(); },
+  closeActivity: () => { S.activityFor = null; scheduleRender(); },
+  onActivity: (fn) => { activityListeners.add(fn); return () => { activityListeners.delete(fn); }; },
 };
+
+// M3 Activity UI: the drawer lives in the app grid, next to the main area.
+const activityDrawer = createActivityDrawer(ctx);
+/** @type {HTMLElement} */ (document.getElementById('app')).append(activityDrawer.el);
+
+/** The session Ctrl+Shift+Y acts on: the tile / card under keyboard focus, else the focused pane's agent. @returns {string|null} */
+function activityTarget() {
+  const at = document.activeElement && document.activeElement.closest('[data-agent]');
+  const id = at && /** @type {HTMLElement} */ (at).dataset.agent;
+  if (id && (S.entries.has(id) || S.external.some((x) => x.id === id))) return id;
+  return editTarget();
+}
 
 /** @param {number} i @param {string|null} id */
 function renderPaneChrome(i, id) {
@@ -655,6 +727,7 @@ window.addEventListener('keydown', (ev) => {
   ev.stopPropagation();
   if (sc.action === 'view' && sc.view) { setView(/** @type {any} */ (sc.view)); return; }
   if (sc.action === 'settings') { openSettingsDialog(ctx); return; }
+  if (sc.action === 'activity') { S.activityFor = toggleTarget(S.activityFor, activityTarget()); scheduleRender(); return; }
   if (sc.action === 'editAgent') { const id = editTarget(); if (id) openAgentEditDialog(ctx, id); return; }
   const cur = focusedId();
   const idx = cur ? S.tabs.indexOf(cur) : -1;
@@ -697,6 +770,9 @@ setInterval(scheduleRender, 20000);
   liveTerminals: () => [...S.views.keys()],
   /** How many times renderChrome ran (to catch render loops). */
   renders: () => renderCount,
+  /** M3: what the activity drawer shows, and a way to open it for a session without a tile (tests). */
+  activityFor: () => (S.activityFor ? { ...S.activityFor } : null),
+  openActivity: (/** @type {string} */ id, /** @type {string} [sub] */ sub) => ctx.openActivity(id, sub),
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 

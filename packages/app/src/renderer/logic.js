@@ -201,6 +201,8 @@ export function shortcutFor(ev, platform = 'win32') {
     if (platform !== 'darwin' && (code === 'KeyC' || key === 'c')) return { action: 'copy' };
     if (platform !== 'darwin' && (code === 'KeyV' || key === 'v')) return { action: 'paste' };
     // Views: Ctrl+Shift+<letter>. Plain Ctrl+B / Ctrl+L / Ctrl+I belong to the terminal and Claude Code.
+    // Activity drawer of the focused agent (M3). Plain Ctrl+Y stays with the terminal.
+    if (code === 'KeyY' || key === 'y') return { action: 'activity' };
     const view = VIEW_KEYS[code] || VIEW_KEYS[`Key${key.toUpperCase()}`];
     if (view) return { action: 'view', view };
     return null;

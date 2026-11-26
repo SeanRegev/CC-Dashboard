@@ -22,6 +22,8 @@ const DEMO = process.env.CC_DEMO_DIR || path.join(os.homedir(), 'cc-demo');
 const MARKER = '.cc-demo';
 const SIZE = { width: 1440, height: 900 };
 const SCALE = 2;
+/** The real `claude` on PATH, with the user's own Claude config (login), not the tests' temp one. */
+const REAL_CLAUDE_ENV = { CC_CLAUDE: '', CLAUDE_CONFIG_DIR: undefined };
 
 /** Two small, believable projects. A failing test gives Claude something to ask permission for. */
 const PROJECTS = {
@@ -123,7 +125,7 @@ async function main() {
   makeProjects();
   const ccHome = h.makeCcHome();
   // CC_CLAUDE='' means: the real `claude` on PATH.
-  const core = await h.startCore({ ccHome, name: 'readme', env: { CC_CLAUDE: '' } });
+  const core = await h.startCore({ ccHome, name: 'readme', env: REAL_CLAUDE_ENV });
   const rpc = await h.connectRpc(core.info);
   /** @type {any} */ let launched;
   const ids = /** @type {Record<string, string>} */ ({});
@@ -165,7 +167,7 @@ async function main() {
     const args = [`--force-device-scale-factor=${SCALE}`];
     if (process.platform === 'linux') args.push('--no-sandbox');
     args.push(h.REPO);
-    const app = await electron.launch({ args, cwd: h.REPO, env: h.testEnv({ ccHome, env: { CC_CLAUDE: '' } }) });
+    const app = await electron.launch({ args, cwd: h.REPO, env: h.testEnv({ ccHome, env: REAL_CLAUDE_ENV }) });
     const page = await app.firstWindow();
     launched = app;
     await app.evaluate(({ BrowserWindow }, size) => {
@@ -236,4 +238,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
 
-module.exports = { captureViews };
+module.exports = { captureViews, makeProjects, PROJECTS, DEMO, FREEZE, SIZE, SCALE, REAL_CLAUDE_ENV };

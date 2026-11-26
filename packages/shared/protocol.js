@@ -14,7 +14,7 @@
  *   GET  /health                 -> { ok: true, version }
  */
 
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 /** Agent states, in the order the sidebar sorts them. */
 const STATES = Object.freeze(['needs_you', 'working', 'starting', 'idle', 'stopped', 'exited']);
@@ -39,8 +39,21 @@ const ROLES = Object.freeze([
 /** Claude Code hook events the core registers. */
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest',
-  'Notification', 'Stop', 'SubagentStop', 'PreCompact', 'SessionEnd',
+  'Notification', 'Stop', 'SubagentStart', 'SubagentStop', 'PreCompact', 'SessionEnd',
 ]);
+
+/**
+ * Subagent types Claude Code ships, with the emoji the app shows next to a subagent's title (v3).
+ * Any other type (a plugin's or the user's own agent) shows SUBAGENT_DEFAULT_EMOJI.
+ */
+const SUBAGENT_TYPES = Object.freeze([
+  Object.freeze({ id: 'general-purpose', label: 'General', emoji: '🔧' }),
+  Object.freeze({ id: 'Explore', label: 'Explore', emoji: '🔭' }),
+  Object.freeze({ id: 'Plan', label: 'Plan', emoji: '📐' }),
+  Object.freeze({ id: 'statusline-setup', label: 'Status line', emoji: '⚙️' }),
+  Object.freeze({ id: 'claude-code-guide', label: 'Guide', emoji: '📖' }),
+]);
+const SUBAGENT_DEFAULT_EMOJI = '🤖';
 
 /**
  * @typedef {Object} Space          A project folder (usually a git repo). Sidebar group.
@@ -104,6 +117,65 @@ const HOOK_EVENTS = Object.freeze([
  * @property {Array<[number,string]>} history   [ms, state] changes, newest last, max 400
  * @property {number} updatedAt
  * @property {number} [needsSince]
+ * @property {{running: number, total: number}} [subagents]   (v3) this session's subagents; while any runs in the
+ *                                  background after the session's own turn ended, state stays 'working'
+ * @property {string} [askedBy]     (v3) with permission: the Subagent id whose tool the prompt is for ('' or absent = the session)
+ */
+
+/**
+ * @typedef {Object} Subagent       (v3) A helper a session started with its Agent (or Task) tool.
+ *                                  Built only from hook events (and, for outside sessions, Claude's transcript
+ *                                  files): no model call, no tokens.
+ * @property {string} id            Claude's agent_id (e.g. "ae0d14e7ad2db2bf5")
+ * @property {string} agentId       the session it belongs to: an Agent id, or an outside session's id ("ext:<sessionId>")
+ * @property {string} title         the short description the parent gave it ("Count files here"); the type's label when none
+ * @property {string} type          agent_type, e.g. "general-purpose", "Explore", "Plan", or a plugin's agent
+ * @property {'running'|'done'|'failed'|'stopped'} state
+ *                                  stopped: the session ended (or was stopped) while it was running
+ * @property {boolean} background   it runs while the parent goes on (Claude's "run in background")
+ * @property {string} [tool]        tool it is running now
+ * @property {string} [detail]      e.g. the command or file
+ * @property {boolean} [needsYou]   a permission prompt on screen came from this subagent
+ * @property {{tools: number, errors: number}} counts
+ * @property {string} [summary]     the start of its final message (max 500 characters), once done
+ * @property {number} startedAt
+ * @property {number} [endedAt]
+ * @property {number} updatedAt
+ */
+
+/**
+ * @typedef {Object} ActivityEntry  (v3) One line of a session's activity log.
+ * @property {number} seq           increases by 1 per entry within one log (agentId); never reused
+ * @property {number} at            ms epoch
+ * @property {string} subagentId    '' = the session itself; else a Subagent id
+ * @property {'prompt'|'tool'|'tool_done'|'tool_error'|'permission'|'subagent_start'|'subagent_end'|'turn_end'|'session_start'|'session_end'|'notice'} kind
+ * @property {string} [tool]        tool / tool_done / tool_error / permission
+ * @property {string} [detail]      command, file, URL, pattern... (max 300 characters)
+ * @property {number} [ms]          tool_done / tool_error: how long the tool took
+ * @property {string} [text]        prompt: what the user asked; subagent_start: title; subagent_end: summary;
+ *                                  turn_end: start of the last message; notice: what happened (max 500 characters)
+ * @property {string} [type]        subagent_start: the subagent type
+ */
+
+/**
+ * @typedef {Object} ExternalSession  (v3) A Claude Code session running on this computer that CC-Dashboard did not start.
+ *                                  Read from Claude's running-session files (<claude config>/sessions/*.json) and its transcript.
+ *                                  View only: the app has no terminal for it. external.takeOver moves it into the app.
+ * @property {string} id            "ext:<sessionId>"
+ * @property {string} sessionId
+ * @property {number} pid
+ * @property {string} cwd
+ * @property {string} [spaceId]     the space whose folder is cwd or contains it
+ * @property {string} name          the session's name, else the folder name
+ * @property {'working'|'idle'|'needs_you'|'unknown'} state
+ * @property {string} [tool]        last tool it ran (from the transcript)
+ * @property {string} [detail]
+ * @property {string} [lastPrompt]
+ * @property {string} [entrypoint]  where it runs, as Claude reports it: "cli", "vscode", "jetbrains", ...
+ * @property {string} [version]     its Claude Code version
+ * @property {number} startedAt
+ * @property {number} updatedAt
+ * @property {{running: number, total: number}} subagents
  */
 
 /**
@@ -224,6 +296,18 @@ const HOOK_EVENTS = Object.freeze([
  * dashboards.input  { id, data }                                     → true
  * dashboards.resize  { id, cols, rows }                              → true
  *
+ * subagents.list   { agentId }                                      → Subagent[]  oldest first (agentId: an Agent id or "ext:<sessionId>")
+ * activity.list    { agentId, subagentId?, before?, limit? }        → { entries: ActivityEntry[], more: boolean }
+ *                                                                     newest last; before = seq (older page); limit default 200, max 1000;
+ *                                                                     subagentId filters ('' = only the session's own lines)
+ * external.list    {}                                               → ExternalSession[]
+ * external.takeOver  { id, spaceId?, name?, force? }                 → Agent  ends the outside process (only when it is idle, unless force),
+ *                                                                     waits for it to exit, then resumes the same conversation here
+ *                                                                     (claude --resume <sessionId> in its cwd). Refuses with still_working
+ *                                                                     when it is busy and force is not set; not_allowed when the process
+ *                                                                     can't be confirmed to be that Claude session. spaceId default: the
+ *                                                                     matching space, else a new space for cwd.
+ *
  * Events (core → app):
  * agent.created    { agent, status }
  * agent.removed    { id }
@@ -237,6 +321,9 @@ const HOOK_EVENTS = Object.freeze([
  * dashboard.output  { id, data }                   (v2: terminal dashboards, attached clients only)
  * dashboard.exit   { id, code }                   (v2)
  * dashboards.changed  { dashboards }               (v2)
+ * subagent.updated  { agentId, subagent }          (v3: started, tool changed, ended)
+ * activity         { agentId, entries }           (v3: new log lines, in seq order; agentId may be "ext:<sessionId>")
+ * external.changed  { sessions }                   (v3: the list of outside sessions changed)
  */
 const METHODS = Object.freeze([
   'hello', 'spaces.list', 'spaces.add', 'spaces.remove',
@@ -248,11 +335,13 @@ const METHODS = Object.freeze([
   'library.skillRead', 'library.skillWrite',
   'dashboards.list', 'dashboards.add', 'dashboards.remove', 'dashboards.trust', 'dashboards.start', 'dashboards.stop',
   'dashboards.attach', 'dashboards.detach', 'dashboards.input', 'dashboards.resize',
+  'subagents.list', 'activity.list', 'external.list', 'external.takeOver',
 ]);
 
 const EVENTS = Object.freeze([
   'agent.created', 'agent.removed', 'agent.status', 'agent.output', 'agent.exit', 'space.changed', 'notify',
   'agent.updated', 'library.changed', 'dashboard.output', 'dashboard.exit', 'dashboards.changed',
+  'subagent.updated', 'activity', 'external.changed',
 ]);
 
 const ERRORS = Object.freeze({
@@ -263,6 +352,7 @@ const ERRORS = Object.freeze({
   PROMPT_CHANGED: 'prompt_changed',      // v2: the prompt on screen is not the one the user answered
   NOT_ALLOWED: 'not_allowed',            // v2: e.g. a managed plugin, an untrusted dashboard command
   NOT_IMPLEMENTED: 'not_implemented',    // v2: groundwork stubs until a track lands
+  STILL_WORKING: 'still_working',        // v3: external.takeOver on a busy session without force
   UNAUTHORIZED: 'unauthorized',
   INTERNAL: 'internal',
 });
@@ -274,4 +364,4 @@ function homeDir() {
   return process.env.CC_HOME || path.join(os.homedir(), '.cc-dashboard');
 }
 
-module.exports = { PROTOCOL_VERSION, STATES, ROLES, HOOK_EVENTS, METHODS, EVENTS, ERRORS, homeDir };
+module.exports = { PROTOCOL_VERSION, STATES, ROLES, HOOK_EVENTS, SUBAGENT_TYPES, SUBAGENT_DEFAULT_EMOJI, METHODS, EVENTS, ERRORS, homeDir };

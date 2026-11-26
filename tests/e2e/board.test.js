@@ -37,7 +37,7 @@ test('Ctrl+Shift+B shows the Board: Needs you / Working / Done / Stopped, all sp
     done: ['docs-pass', 'perf-audit'],
     stopped: ['old-spike'],
   });
-  assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('.bch-count')].map((e) => e.textContent)`), ['2', '3', '2', '1']);
+  assert.deepEqual(await app.evaluate(`[...document.querySelectorAll('.bch-count')].map((e) => e.textContent)`), ['2', '4', '4', '1']); // the three outside sessions of the mock count too: 1 working, 2 idle
 });
 
 test('cards show role badge, name, space, activity, context % and open the agent on click', async () => {

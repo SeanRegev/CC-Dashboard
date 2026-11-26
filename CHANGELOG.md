@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+- **Subagents.** Each helper agent a session starts (Claude's Agent or Task tool) shows under its session with a
+  title, its type, its state and what it is doing. Grid tiles show a strip of the running ones, and the approval
+  card says which subagent asked. Needs Claude Code 2.0.43 or newer.
+- **Activity log and drawer** (Ctrl+Shift+Y, or Activity in an agent's menu). Every prompt, tool call, permission
+  prompt, error and subagent is logged from Claude Code's hook events. Nothing is sent to a model, so the log uses
+  no tokens. Logs are kept across restarts and trimmed past 2 MB. Click a subagent to filter the feed.
+- **Sessions started outside the app.** Claude Code sessions from a terminal or editor appear as view-only tiles
+  under their project, and under Other folders when they are outside every project (Add as space). They have no
+  typing and no Allow or Deny.
+- **Take over.** Moves an outside session into the app: ends its process, then reopens the same conversation with
+  `claude --resume` in the same folder. A busy session needs the confirmation "End it and take over". Take over
+  refuses when it cannot confirm the process is that Claude session, or when the conversation is open in more than
+  one place. The activity log carries over.
+
 ## 0.2.0
 
 - **Session roles.** Every agent wears a role tab: 👑 Main, 🔧 Worker, 🔍 Reviewer, 🔭 Research, 🧪 Tests,

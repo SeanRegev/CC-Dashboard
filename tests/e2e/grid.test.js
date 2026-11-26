@@ -162,7 +162,7 @@ test('double-click, Enter and the button expand a tile to the whole view; Esc an
 test('right-click a tile: Make Main moves the crown', async () => {
   assert.equal(await contextMenu(tileSel('agent-05')), true);
   const items = await app.evaluate(`[...document.querySelectorAll('.ctx-item')].map((b) => b.dataset.action)`);
-  assert.deepEqual(items, ['open', 'edit', 'make-main', 'resume', 'restart', 'remove']);
+  assert.deepEqual(items, ['open', 'activity', 'edit', 'make-main', 'resume', 'restart', 'remove']);
   await app.click('.ctx-item[data-action="make-main"]');
   await until(() => mock.calls.some((c) => c.method === 'agents.update' && c.params.id === 'agent-05' && c.params.role.id === 'main'));
   await app.waitFor(`document.querySelector('.tile').dataset.agent === 'agent-05'`);

@@ -12,6 +12,7 @@
  *  - one answer in flight per agent (no double press).
  */
 import { h, icon } from '../dom.js';
+import { askedByInfo } from './activity-logic.js';
 
 /** agentId → promptId of the answer in flight. Module-level: buttons are rebuilt on every render. */
 const inFlight = new Map();
@@ -88,6 +89,14 @@ export function approvalButtons(ctx, entry, opts = {}) {
     dataset: { agent: id, prompt: p ? p.id : '' },
     onclick: (/** @type {Event} */ ev) => ev.stopPropagation(),
   });
+  // M3: a permission prompt that came from a subagent says which one.
+  const by = askedByInfo(ctx.subagents ? ctx.subagents(id) : [], st.askedBy);
+  if (by) {
+    box.append(h('button', {
+      class: 'appr-askedby', type: 'button', dataset: { sub: by.id }, title: by.title ? `Asked by ${by.title}: open its activity` : 'Asked by a subagent: open its activity',
+      onclick: () => ctx.openActivity(id, by.id),
+    }, h('span', { class: 'by' }, 'asked by'), h('span', { 'aria-hidden': 'true' }, by.emoji), h('span', { class: 'by-title' }, by.title || 'a subagent')));
+  }
   if (!p) {
     box.append(
       h('span', { class: 'appr-what muted', title: 'CC-Dashboard could not read this prompt. Answer it in the terminal.' }, 'Answer in the terminal'),

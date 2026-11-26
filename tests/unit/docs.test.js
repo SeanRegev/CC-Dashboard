@@ -58,7 +58,7 @@ test('plugin dashboard docs: the object example is read as a web dashboard that 
   }
 });
 
-test('changelog has the 0.2.0 and 0.1.0 sections, newest first', () => {
+test('changelog has the 0.3.0, 0.2.0 and 0.1.0 sections, newest first', () => {
   const heads = [...changelog.matchAll(/^## (\S+)/gm)].map((m) => m[1]);
-  assert.deepEqual(heads.slice(0, 2), ['0.2.0', '0.1.0']);
+  assert.deepEqual(heads.slice(0, 3), ['0.3.0', '0.2.0', '0.1.0']);
 });

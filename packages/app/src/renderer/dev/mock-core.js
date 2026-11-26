@@ -29,6 +29,7 @@ const { WebSocketServer } = require('ws');
 const { PROTOCOL_VERSION, ERRORS, ROLES, homeDir } = require('../../../../shared/protocol.js');
 const { libraryMethods } = require('./mock-library.js');
 const { dashboardMethods } = require('./mock-dashboards.js');
+const { activityMethods } = require('./mock-activity.js');
 
 const roleOf = (/** @type {string} */ id) => ({ ...(ROLES.find((r) => r.id === id) || ROLES[1]) });
 /** Seeded roles: the oldest agent of each space is Main. */
@@ -423,6 +424,24 @@ async function startMockCore(opts = {}) {
     ...libraryMethods({ broadcast, fail, ERRORS, home }),
     ...dashboardMethods({ broadcast, fail, ERRORS, home, attachments, emitOutput: dashboardOutput }),
   };
+  // v3: subagents, activity log, outside sessions (mock-activity.js)
+  const activity = activityMethods({
+    broadcast, fail, ERRORS, state, setStatus, base: path.join(os.homedir(), 'code'), static: !!opts.static,
+    addSpace: (p, name) => methods['spaces.add']({ path: p, name }),
+    createAgent: (spec) => {
+      let id = slug(spec.name);
+      for (let i = 2; state.agents.has(id); i++) id = `${slug(spec.name)}-${i}`;
+      const now = Date.now();
+      const hasMain = [...state.agents.values()].some((x) => x.agent.spaceId === spec.spaceId && x.agent.role.id === 'main');
+      const agent = { id, spaceId: spec.spaceId, name: spec.name, cwd: spec.cwd, sessionId: spec.sessionId, model: '', effort: '', mode: '', prompt: spec.prompt || '', role: roleOf(hasMain ? 'worker' : 'main'), createdAt: now };
+      const status = { agentId: id, state: 'idle', lastPrompt: spec.prompt || '', counts: { tools: 0, turns: 1, errors: 0, subagents: 0 }, files: [], history: [[now, 'idle']], usage: { total: 0, context: 0, contextPct: 0, model: '' }, updatedAt: now };
+      const e = { agent, status, running: true, screen: banner(agent.name, agent.cwd) + `${c.muted}[resumed ${spec.sessionId.slice(0, 8)}, taken over]${c.reset}${NL}${PROMPT}`, line: '' };
+      state.agents.set(id, e);
+      broadcast('agent.created', entry(e));
+      return agent;
+    },
+  });
+  Object.assign(methods, activity.methods);
 
   /**
    * Like the real core: a permission prompt must be waiting, and with promptId it must be the one
@@ -523,6 +542,7 @@ async function startMockCore(opts = {}) {
         if (lc.status.state === 'working') setStatus('landing-copy', { state: 'needs_you', message: 'Pick a headline: A or B?' });
         else if (lc.status.state === 'needs_you') setStatus('landing-copy', { state: 'working', tool: 'Edit', detail: 'pages/index.tsx' });
       }
+      activity.step();
     }, opts.tickMs || 4000));
   }
 
@@ -536,7 +556,7 @@ async function startMockCore(opts = {}) {
   }
 
   return {
-    port, token, home, inputs, calls, presses, state,
+    port, token, home, inputs, calls, presses, state, activity,
     setStatus, output, broadcast,
     /** Close every client socket (simulates a core restart for reconnect tests). */
     dropClients() { for (const ws of sockets) ws.terminate(); },

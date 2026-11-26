@@ -69,13 +69,19 @@ function testEnv({ ccHome, env = {} }) {
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) base[k] = v;
   // Inherited from a parent Electron/Node would make the app start as plain Node.
   delete base.ELECTRON_RUN_AS_NODE;
-  return {
+  /** @type {Record<string, string|undefined>} */
+  const out = {
     ...base,
     CC_HOME: ccHome,
     CC_CLAUDE: fakeClaudeCommand(),
     CC_DISABLE_GPU: '1',
+    // Never the real ~/.claude: the core lists outside sessions and reads transcripts from this folder.
+    CLAUDE_CONFIG_DIR: path.join(ccHome, 'claude-config'),
     ...env,
   };
+  // `env: { NAME: undefined }` removes a variable (the README screenshot scripts use the real Claude login).
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return /** @type {Record<string, string>} */ (out);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

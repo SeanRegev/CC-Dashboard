@@ -105,3 +105,21 @@ test('detach forgets the terminal; in-flight calls reject when the socket drops'
   await ready;
   assert.equal(client.state, 'open');
 });
+
+test('a call can ask for a longer timeout than the default (external.takeOver)', async () => {
+  const { CoreClient, RpcError } = await load();
+  // Never started: calls wait in the queue until their timer fires.
+  const client = new CoreClient({ getConnection: async () => null, callTimeout: 80 });
+  const t0 = Date.now();
+  await assert.rejects(client.call('spaces.list'), (e) => e instanceof RpcError && e.code === 'timeout');
+  assert.ok(Date.now() - t0 < 300, 'the default timeout applies');
+  let settled = false;
+  const slow = client.call('external.takeOver', { id: 'ext:x' }, { timeout: 400 }).catch((e) => e);
+  slow.then(() => { settled = true; });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(settled, false, 'still waiting after the default timeout');
+  const err = await slow;
+  assert.equal(err.code, 'timeout');
+  assert.ok(Date.now() - t0 >= 400);
+  client.close();
+});

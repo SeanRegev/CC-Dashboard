@@ -13,13 +13,15 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { ERRORS, PROTOCOL_VERSION, ROLES } = require('../../shared/protocol');
-const { newStatus, newRuntime, applyEvent, withState } = require('./status');
+const { newStatus, newRuntime, applyEvent, withState, restingStatus } = require('./status');
 const { UsageReader } = require('./usage');
 const { StateStore } = require('./store');
 const { ensureSettings } = require('./hooks-settings');
 const { AgentTerminal, Scrollback } = require('./terminal');
 const { baseCommand, claudeArgs, spawnSpec } = require('./command');
 const { Library } = require('./library');
+const { Activity } = require('./activity');
+const { External } = require('./external');
 const { Dashboards } = require('./dashboards');
 const { parsePrompt } = require('./prompt');
 
@@ -56,13 +58,7 @@ const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
 const PROMPT_READ_MS = 40;
 const APPROVE_CHOICES = ['allow', 'allow_always'];
 
-class RpcError extends Error {
-  /** @param {string} code @param {string} message */
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
+const { RpcError } = require('./errors');
 
 /** @param {string} text */
 function slug(text) {
@@ -114,6 +110,8 @@ class Core extends EventEmitter {
     this.restartPending = new Set();
     this.library = new Library(this);
     this.dashboards = new Dashboards(this);
+    this.activity = new Activity(this);
+    this.external = new External(this);
     /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
     this.promptTimers = new Map();
   }
@@ -139,6 +137,8 @@ class Core extends EventEmitter {
     this.store.saveNow();
     this.ticker = setInterval(() => this.tick(), this.tickMs);
     this.ticker.unref();
+    this.activity.start();
+    this.external.start();
   }
 
   /** @param {string} url @param {string} token */
@@ -199,8 +199,10 @@ class Core extends EventEmitter {
     const name = agent ? agent.name : id;
     if (after.state === 'needs_you' && before.state !== 'needs_you') {
       this.notify(`${name} needs you`, after.message || 'Waiting for you', id, 'needs_you');
-    } else if (event === 'Stop' && rtBefore.turnStartedAt) {
-      const took = after.updatedAt - rtBefore.turnStartedAt;
+    } else if ((event === 'Stop' || event === 'SubagentStop') && after.state === 'idle'
+      && (rtBefore.doneFrom || rtBefore.turnStartedAt)) {
+      // A turn whose background subagents still ran at Stop is done when the last one ends.
+      const took = after.updatedAt - (rtBefore.doneFrom || rtBefore.turnStartedAt);
       if (took >= this.longTurnMs) {
         const secs = Math.floor(took / 1000);
         const m = Math.floor(secs / 60);
@@ -224,8 +226,13 @@ class Core extends EventEmitter {
     // Late hooks from a process that is gone must not resurrect it. A natural exit's
     // SessionEnd can race the process exit, so that one is still accepted.
     if (!live && (event !== 'SessionEnd' || this.userStopped.has(id))) return true;
+    /** @type {any} */
+    let ctx = {};
+    try { ctx = this.activity.onHook(id, event, payload) || {}; } catch { /* the log never breaks status */ }
+    // One of Claude's hidden helpers ended (see Activity): it changes nothing the user sees.
+    if (ctx.internal) return true;
     this.update(id, (s, r) => {
-      const out = applyEvent(s, r, event, payload);
+      const out = applyEvent(s, r, event, payload, Date.now(), ctx);
       out.rt.stuck = false;
       if (event === 'Stop') out.rt.turnStartedAt = 0;
       const u = out.rt.transcriptPath ? this.usage.read(out.rt.transcriptPath) : null;
@@ -259,7 +266,8 @@ class Core extends EventEmitter {
       } else if (s.state === 'needs_you' && s.permission && now - (r.permAt || s.needsSince || 0) > this.promptGoneMs
         && this.promptGone(term)) {
         // Answered inside the terminal (e.g. Esc): no hook fires for that.
-        this.update(id, (st, rt) => ({ status: withState(st, 'idle', {}, now), rt: { ...rt, answeredAt: now } }));
+        const subs = this.activity.onPromptGone(id);
+        this.update(id, (st, rt) => ({ status: restingStatus(st, subs, now), rt: { ...rt, answeredAt: now, turnStartedAt: 0 } }));
       } else if (scanUsage && r.transcriptPath && s.state === 'working') {
         const u = this.usage.read(r.transcriptPath);
         if (u && JSON.stringify(u) !== JSON.stringify(s.usage)) {
@@ -451,6 +459,41 @@ class Core extends EventEmitter {
     this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
     for (const a of demoted) this.broadcast('agent.updated', { agent: a });
     this.launch(agent, { resume: false });
+    return agent;
+  }
+
+  /**
+   * v3 external.takeOver: a conversation started outside the app becomes an agent here, resumed
+   * with `claude --resume <sessionId>` in its own cwd. The caller has already ended the outside process.
+   * @param {{spaceId: string, name: string, cwd: string, sessionId: string, transcriptPath?: string, log?: {entries?: any[], subagents?: any[]}}} p  log: what the app showed for it outside (carried over)
+   * @returns {Agent}
+   */
+  adoptSession(p) {
+    const space = this.spaces.get(p.spaceId);
+    if (!space) throw new RpcError(ERRORS.NOT_FOUND, `no space ${p.spaceId}`);
+    const hasMain = [...this.agents.values()].some((a) => a.spaceId === space.id && a.role && a.role.id === 'main');
+    const name = String(p.name || '').trim().slice(0, 80) || 'agent';
+    /** @type {Agent} */
+    const agent = {
+      id: this.uniqueId(slug(name) || 'agent', this.agents),
+      spaceId: space.id, name, cwd: path.resolve(p.cwd), sessionId: p.sessionId,
+      model: '', effort: '', mode: '', prompt: '', role: roleOf(hasMain ? 'worker' : 'main'), createdAt: Date.now(),
+    };
+    this.agents.set(agent.id, agent);
+    this.status.set(agent.id, newStatus(agent.id));
+    // launch() resumes only when it can find the transcript: tell it where the outside session kept it.
+    this.rt.set(agent.id, { ...newRuntime(), transcriptPath: p.transcriptPath || '' });
+    // Its activity log so far (what the app showed while it ran outside) carries over.
+    if (p.log) {
+      try {
+        this.activity.adopt(agent.id, p.log);
+        const st = this.status.get(agent.id);
+        if (st) this.status.set(agent.id, { ...st, subagents: this.activity.load(agent.id).counts() });
+      } catch { /* the log is a convenience */ }
+    }
+    this.store.saveNow();
+    this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
+    this.launch(agent, { resume: true });
     return agent;
   }
 
@@ -646,6 +689,7 @@ class Core extends EventEmitter {
     this.sizes.delete(agent.id);
     const promoted = this.fixRoles();
     this.store.saveNow();
+    try { this.activity.onRemove(agent.id); } catch { /* best effort */ }
     this.broadcast('agent.removed', { id: agent.id });
     for (const a of promoted) this.broadcast('agent.updated', { agent: a });
     return true;
@@ -750,7 +794,9 @@ class Core extends EventEmitter {
     if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
     const denied = () => {
       const now = Date.now();
-      this.update(id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
+      // Esc ends the turn; background subagents go on (the session stays working while they run).
+      const subs = this.activity.onPromptGone(id);
+      this.update(id, (s, r) => ({ status: restingStatus(s, subs, now), rt: { ...r, answeredAt: now, turnStartedAt: 0 } }));
       return true;
     };
     if (!promptId) {
@@ -769,6 +815,8 @@ class Core extends EventEmitter {
   shutdown() {
     if (this.ticker) clearInterval(this.ticker);
     try { this.dashboards.shutdown(); } catch { /* best effort */ }
+    try { this.activity.shutdown(); } catch { /* best effort */ }
+    try { this.external.shutdown(); } catch { /* best effort */ }
     try { this.store.saveNow(); } catch { /* best effort */ }
     for (const [id, term] of this.terms) {
       this.userStopped.add(id);

@@ -23,7 +23,20 @@
 // With "nohook" in the prompt too, a "needs your permission" Notification stands in for
 // PermissionRequest (older Claude Code).
 // Without a prompt, typed lines (ending in Enter) behave as above.
+//
+// Subagents (M3): a prompt (or typed line) with "subagents:<n>" fires the hook sequence real Claude
+// Code 2.1 fires when it hands work to n subagents (tests/fixtures/hooks/subagent-background.jsonl),
+// and writes each one's meta.json next to the transcript (<CC_HOME>/<sessionId>/subagents/):
+//   - default (foreground): PreToolUse(Agent) x n, SubagentStart, Bash + Read inside each subagent,
+//     SubagentStop, PostToolUse(Agent) with the agentId, Stop
+//   - with "bg": PreToolUse(Agent) + PostToolUse(Agent, async_launched) + SubagentStart each, one tool
+//     each, Stop (background_tasks lists them), a pause (CC_FAKE_SUBAGENT_MS, default 300 ms), then
+//     per subagent: its tools, SubagentStop, and a <task-notification> turn (UserPromptSubmit + Stop)
+//   - with "nopre": no PreToolUse / PostToolUse(Agent): titles come only from meta.json, which is
+//     written after SubagentStart (like real Claude, where it can lag behind)
+// Titles: "Count files here", "Find token call sites", "Plan the retry fix", "Subagent task 4", ...
 'use strict';
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -57,7 +70,9 @@ fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', timestamp: new
 
 process.stdout.write('FAKE CLAUDE READY\r\n');
 fire('SessionStart', { source: get('--resume') ? 'resume' : 'startup' });
-if (prompt && !/layout:/.test(prompt)) {
+if (prompt && /subagents:\d/.test(prompt) && !/layout:/.test(prompt)) {
+  setImmediate(() => runSubagents(prompt)); // after the constants below are set
+} else if (prompt && !/layout:/.test(prompt)) {
   fire('UserPromptSubmit', { prompt });
   fire('PreToolUse', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
   fire('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: path.join(process.cwd(), 'app.js') }, tool_response: {} });
@@ -76,8 +91,93 @@ function onLine(line) {
   const text = line.trim();
   if (text === '/exit') { fire('SessionEnd', { reason: 'exit' }); process.exit(0); }
   process.stdout.write(`GOT: ${text}\r\n`);
+  if (/subagents:\d/.test(text)) { runSubagents(text); return; }
   fire('UserPromptSubmit', { prompt: text });
   fire('Stop');
+}
+
+const SUB_TITLES = ['Count files here', 'Find token call sites', 'Plan the retry fix'];
+const SUB_TYPES = ['general-purpose', 'Explore', 'Plan'];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let subRun = 0;
+
+/** The hooks real Claude fires when it starts subagents (see the header). @param {string} text */
+async function runSubagents(text) {
+  const n = Math.max(1, Math.min(9, Number(/subagents:(\d+)/.exec(text)[1])));
+  const bg = /\bbg\b/.test(text);
+  const noPre = /\bnopre\b/.test(text);
+  const pause = Number(process.env.CC_FAKE_SUBAGENT_MS || 300);
+  const run = ++subRun;
+  const subs = [];
+  for (let i = 0; i < n; i++) {
+    const id = 'a' + crypto.createHash('sha1').update(`${sessionId}:${run}:${i}`).digest('hex').slice(0, 16);
+    subs.push({ id, title: SUB_TITLES[i] || `Subagent task ${i + 1}`, type: SUB_TYPES[i % SUB_TYPES.length], toolUseId: `toolu_fake_${run}_${i}` });
+  }
+  const subDir = path.join(path.dirname(transcript), sessionId, 'subagents');
+  const meta = (s, finished) => {
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(subDir, `agent-${s.id}.meta.json`), JSON.stringify({
+      agentType: s.type, isBuiltIn: true, description: s.title, toolUseId: s.toolUseId, spawnDepth: 1,
+      requestShape: bg ? 'background' : 'foreground', model: 'fake-model', finished,
+    }));
+  };
+  const agentInput = (s) => ({ description: s.title, prompt: `Do this: ${s.title}`, subagent_type: s.type });
+  const inSub = (s, event, extra) => fire(event, { agent_id: s.id, agent_type: s.type, ...extra });
+  const ls = (s) => ({ tool_name: 'Bash', tool_input: { command: 'ls', description: 'List files' }, tool_use_id: `toolu_ls_${s.id}` });
+  const read = (s) => ({ tool_name: 'Read', tool_input: { file_path: path.join(process.cwd(), 'a.txt') }, tool_use_id: `toolu_read_${s.id}` });
+  const startSub = (s) => {
+    if (!noPre) meta(s, false);
+    fire('SubagentStart', { agent_id: s.id, agent_type: s.type });
+    if (noPre) meta(s, false);
+  };
+  const finishSub = (s, stillRunning) => {
+    inSub(s, 'PostToolUse', { ...ls(s), tool_response: { stdout: 'a.txt', stderr: '', interrupted: false }, duration_ms: 40 });
+    inSub(s, 'PreToolUse', read(s));
+    inSub(s, 'PostToolUse', { ...read(s), tool_response: { type: 'text', file: { content: 'hello\n' } }, duration_ms: 5 });
+    meta(s, true);
+    fs.writeFileSync(path.join(subDir, `agent-${s.id}.jsonl`), JSON.stringify({ type: 'assistant', isSidechain: true, agentId: s.id }) + '\n');
+    inSub(s, 'SubagentStop', {
+      agent_transcript_path: path.join(subDir, `agent-${s.id}.jsonl`), last_assistant_message: `Done: ${s.title}. Found a.txt.`,
+      background_tasks: bg ? stillRunning.map(task) : [],
+    });
+  };
+  const task = (s) => ({ id: s.id, type: 'subagent', status: 'running', description: s.title, agent_type: s.type });
+
+  fire('UserPromptSubmit', { prompt: text });
+  if (bg) {
+    for (const s of subs) {
+      if (!noPre) {
+        fire('PreToolUse', { tool_name: 'Agent', tool_input: agentInput(s), tool_use_id: s.toolUseId });
+        fire('PostToolUse', { tool_name: 'Agent', tool_input: agentInput(s), tool_use_id: s.toolUseId, duration_ms: 15,
+          tool_response: { isAsync: true, status: 'async_launched', agentId: s.id, description: s.title } });
+      }
+      startSub(s);
+    }
+    for (const s of subs) inSub(s, 'PreToolUse', ls(s));
+    fire('Stop', { last_assistant_message: `${n} subagent${n === 1 ? ' is' : 's are'} running in the background.`, background_tasks: subs.map(task) });
+    process.stdout.write(`SUBAGENTS RUNNING: ${n}\r\n`);
+    await sleep(pause);
+    const left = [...subs];
+    for (const s of subs) {
+      finishSub(s, left);
+      left.shift();
+      fire('UserPromptSubmit', { prompt: `<task-notification>\n<task-id>${s.id}</task-id>\n<tool-use-id>${s.toolUseId}</tool-use-id>\n`
+        + `<status>completed</status>\n<summary>Agent "${s.title}" finished</summary>\n<result>Done: ${s.title}</result>\n</task-notification>` });
+      fire('Stop', { last_assistant_message: `${s.title}: done.`, background_tasks: left.map(task) });
+    }
+  } else {
+    if (!noPre) for (const s of subs) fire('PreToolUse', { tool_name: 'Agent', tool_input: agentInput(s), tool_use_id: s.toolUseId });
+    for (const s of subs) startSub(s);
+    for (const s of subs) { inSub(s, 'PreToolUse', ls(s)); finishSub(s, []); }
+    if (!noPre) {
+      for (const s of subs) {
+        fire('PostToolUse', { tool_name: 'Agent', tool_input: agentInput(s), tool_use_id: s.toolUseId, duration_ms: 900,
+          tool_response: { status: 'completed', agentId: s.id, totalToolUseCount: 2 } });
+      }
+    }
+    fire('Stop', { last_assistant_message: 'All subagents are done.', background_tasks: [] });
+  }
+  process.stdout.write(`SUBAGENTS DONE: ${n}\r\n`);
 }
 
 const layoutMatch = /layout:([\w,-]+)/.exec(prompt);
