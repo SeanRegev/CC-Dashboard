@@ -290,6 +290,9 @@ test('a narrow window: the drawer overlays instead of taking a column', async ()
   await app.evaluate(`window.__cc.openActivity('refactor-auth')`);
   await app.waitFor(`!document.getElementById('activity-drawer').hidden`);
   const pos = () => app.evaluate(`getComputedStyle(document.getElementById('activity-drawer')).position`);
+  // Emulate the width: on Windows CI the real window is clamped to a 1024x768 screen.
+  await app.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await sleep(200);
   assert.equal(await pos(), 'static', 'docked in the app grid at 1280 px');
   const mainW = await app.evaluate(`document.getElementById('workspace').getBoundingClientRect().width + document.getElementById('view-host').getBoundingClientRect().width`);
   await app.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false });
