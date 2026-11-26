@@ -27,6 +27,9 @@ demo projects, captured by [`scripts/readme-screenshots.js`](scripts/readme-scre
 - **"Needs you" first.** When Claude asks for permission or a question, the agent turns amber, moves to the top, and shows what it wants (*"Wants to use Bash: npm test"*). The top bar counts how many agents are waiting, and Windows shows a notification.
 - **Agents keep running when you close the window.** A small background service (the *core*) owns the sessions. Reopen the app and you're back where you were, scrollback included.
 - **Split view, tabs and a quick switcher** to move between agents without the mouse.
+- **Roles and a project grid (0.2).** Each agent wears a role tab, like 👑 Main or 🔧 Worker. Open a project as a grid of live terminals.
+- **Answer prompts where you see them (0.2).** Allow, Always or Deny from the sidebar, grid, board or Inbox, without opening the terminal.
+- **Board, Library and Dashboards (0.2).** A board of your agents by state, your plugins and skills in one place, and the dashboards your tools ship.
 - **Context and token use** per agent, and which model it runs.
 - **Nothing re-implemented.** It's Claude Code as you know it, with your settings, skills and `CLAUDE.md`. CC-Dashboard only adds its own hooks (to learn each agent's status) when it starts `claude`; your settings files are never edited.
 
@@ -74,6 +77,84 @@ The first time Claude Code opens a folder it asks whether you trust it. The agen
 | 🟣 | **Done** | The turn finished; the agent waits for your next message. |
 | ⚪ | **Stopped / Exited** | The process isn't running. Stopped agents can be resumed and keep their conversation (`claude --resume`). |
 
+### Session roles
+
+Every agent wears a role tab: 👑 **Main**, 🔧 **Worker**, 🔍 **Reviewer**, 🔭 **Research**, 🧪 **Tests**,
+📝 **Docs**, 🐛 **Debug**, 🎨 **Design**, or a label and emoji of your own.
+
+- One Main per project. The first agent in a project is Main.
+- **Make Main** moves the crown to another agent in the same project.
+- Change the role or rename an agent with `F2` on the focused agent, or from its right-click menu.
+
+![The rename and role dialog for refactor-auth, with the role choices: Main, Worker, Reviewer, Research, Tests, Docs, Debug, Design and Custom](docs/images/roles.png)
+
+### Project grid
+
+Click a project in the sidebar, then **Grid**, and all its agents appear as live terminals: two per row, four on
+screen, the rest by scrolling. Main comes first, then the agents that need you.
+
+- Double-click a tile to expand it. **← Back to grid** returns.
+- Only tiles on or next to the screen keep a live terminal, so it stays fast with many agents. The others show the last lines of output.
+
+![The cc-dashboard project as a grid: refactor-auth (Main) asking to run npm install, fix-flaky-tests, api-client and docs-pass, each in its own tile](docs/images/grid.png)
+
+### Allow, Always, Deny and the Inbox
+
+When Claude asks permission, you can answer from the sidebar card, a grid tile, a board card or the Inbox, without
+opening the terminal.
+
+- **Allow** says yes once. **Deny** says no.
+- **Always** appears only when Claude offers "don't ask again", and it says yes for that kind of command from now on.
+- Before the app presses a button it checks that the prompt on screen is still the one you saw. If the prompt
+  has changed, nothing is answered and you see the new prompt. If the app cannot read a prompt, it offers **Open**
+  instead of guessing.
+
+The **Inbox** (`Ctrl+Shift+A`) lists every prompt that needs you. Keys: `J` / `K` move, `A` allow, `S` always,
+`D` deny, `Enter` open the agent.
+
+![The Inbox: two agents asking for permission to run npm test and to run a command, each with Allow, Always and Deny](docs/images/inbox.png)
+
+### Board
+
+`Ctrl+Shift+B` shows every agent as a card in one of four columns: **Needs you**, **Working**, **Done** and **Stopped**.
+Filter it to the current project or show all projects.
+
+![The board with four columns: Needs you, Working, Done and Stopped, with agent cards in each](docs/images/board.png)
+
+### Library
+
+`Ctrl+Shift+L` is your plugins and skills in one place.
+
+- **Plugins:** turn them on or off, update them (a badge shows when a newer version exists), configure them and uninstall them.
+- **Browse:** install plugins from marketplaces. Add a marketplace in the Marketplaces tab.
+- **Skills:** read and edit a skill, create one, delete one (it goes to the Recycle Bin) and **Try it** to run it in a new agent.
+- Plugins your organization manages, and the ones built into Claude Code, can be turned on and off, but not updated or removed here.
+- After a change, **Restart** the agents that use the old plugins. The bar at the top says which ones.
+
+![The Library's Plugins tab with the plugins installed on this computer, each with its on or off switch](docs/images/library.png)
+
+### Dashboards
+
+`Ctrl+Shift+D` shows dashboards for your tools and plugins.
+
+- **CodeBurn** is built in: its token and cost dashboard, in a terminal or in your browser.
+- Plugins that ship a dashboard show up here by themselves. See [docs/PLUGIN-DASHBOARDS.md](docs/PLUGIN-DASHBOARDS.md) if you write one.
+- **Add your own** takes a command (it runs in a terminal or starts a program) or a web address.
+- A plugin's command runs only after you approve it, the first time, with the command shown in full.
+- Web dashboards open in a locked-down window. Links to other sites open in your browser.
+
+![The Dashboards view with CodeBurn, plugin dashboards and your own, each with an Open button](docs/images/dashboards.png)
+
+### Settings
+
+Press `Ctrl+,` (or use the ⋯ menu) for Settings. Changes apply at once.
+
+- **Appearance:** Dark, Light or System, and the terminal font and size.
+- **Notifications:** all of them, only when an agent needs you, or off. Turn the sound on or off too.
+- **Quit and stop all agents** ends the background service and every agent. Closing the window does not.
+
+![Settings in the light theme: appearance, terminal font, notifications and the Quit and stop all agents button](docs/images/settings-light.png)
+
 ### Keyboard shortcuts
 
 On macOS use `Cmd` where it says `Ctrl`.
@@ -88,7 +169,18 @@ On macOS use `Cmd` where it says `Ctrl`.
 | `Ctrl+1` … `Ctrl+9` | Go to tab 1 … 9 |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste in the terminal (`Ctrl+C` stays Claude's interrupt) |
 | `Ctrl+Enter` | Start the agent (in the New agent dialog) |
+| `Ctrl+Shift+T` | Terminals (the split panes) |
+| `Ctrl+Shift+G` | Grid of the project's agents |
+| `Ctrl+Shift+B` | Board |
+| `Ctrl+Shift+A` | Inbox |
+| `Ctrl+Shift+L` | Library |
+| `Ctrl+Shift+D` | Dashboards |
+| `Ctrl+,` | Settings |
+| `F2` | Rename the focused agent, or change its role |
 | `Esc` | Close a dialog |
+
+Plain `Ctrl+B`, `Ctrl+L` and `Ctrl+I` belong to the terminal and Claude Code, so the views use `Ctrl+Shift`.
+In the Inbox, `J` `K` `A` `S` `D` and `Enter` answer prompts (see above).
 
 All other keys go straight to Claude Code.
 
@@ -96,7 +188,8 @@ All other keys go straight to Claude Code.
 
 - **Closing the window** leaves your agents running in the background core. Open CC-Dashboard again to get them back.
 - **Stop** (top right of a pane) ends that agent's `claude` process. Its record and conversation stay: open it and click **Resume** to continue.
-- **The core** keeps running until you sign out or shut down. To stop it and every agent, end the *CC-Dashboard* background process in Task Manager.
+- **Quit and stop all agents** (Settings, or the ⋯ menu) stops the background service and every agent. Each agent keeps its conversation, so you can resume it later.
+- **The core** keeps running until you sign out, shut down or choose Quit and stop all agents. If you cannot reach it, end the *CC-Dashboard* background process in Task Manager.
 - **Uninstall** from *Settings → Apps*. Your spaces and agent list stay in `%USERPROFILE%\.cc-dashboard`; delete that folder to remove them too.
   Claude Code's own conversations stay where Claude Code keeps them.
 
@@ -131,6 +224,8 @@ All other keys go straight to Claude Code.
 - **The terminals are real.** The core keeps each agent's scrollback, and the window replays it when you open the agent.
 
 More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (layers, decisions) and [packages/shared/protocol.js](packages/shared/protocol.js) (the core ↔ app contract).
+
+For plugin authors: [docs/PLUGIN-DASHBOARDS.md](docs/PLUGIN-DASHBOARDS.md) explains how a plugin's dashboard is found and shown.
 
 ## Development
 
@@ -176,6 +271,8 @@ Every push also runs [CI](.github/workflows/ci.yml) on Windows and Linux, and ke
 
 ## Roadmap
 
-- **Now (0.1):** spaces, agents, live terminals, needs-you, split view, quick switcher, notifications, Windows installer.
-- **Next:** Allow / Deny buttons without opening the terminal, spaces side by side, a board view, themes.
-- **Later:** task routing across agents, git worktrees per agent, a review step before changes land, usage insight. macOS and Linux builds.
+- **Done (0.2):** session roles, the project grid, Allow / Always / Deny and the Inbox, the board, the library, dashboards, settings with light and dark themes.
+- **Next:** task routing across agents, git worktrees per agent, a review step before changes land, usage insight.
+- **Later:** macOS and Linux builds.
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md).

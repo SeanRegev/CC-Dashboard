@@ -26,7 +26,21 @@ test('README local links point at files that exist', () => {
 });
 
 test('README documents every keyboard shortcut the app has', () => {
-  for (const k of ['Ctrl+K', 'Ctrl+T', 'Ctrl+\\', 'Ctrl+W', 'Ctrl+Tab', 'Ctrl+1', 'Ctrl+Shift+C', 'Ctrl+Shift+V']) {
+  for (const k of ['Ctrl+K', 'Ctrl+T', 'Ctrl+\\', 'Ctrl+W', 'Ctrl+Tab', 'Ctrl+1', 'Ctrl+Shift+C', 'Ctrl+Shift+V',
+    'Ctrl+Shift+T', 'Ctrl+Shift+G', 'Ctrl+Shift+B', 'Ctrl+Shift+A', 'Ctrl+Shift+L', 'Ctrl+Shift+D', 'Ctrl+,', 'F2']) {
     assert.ok(readme.includes(k), `README mentions ${k}`);
   }
+});
+
+test('README shortcut table lists every view key the app wires (Ctrl+Shift+letter)', () => {
+  const { VIEW_KEYS } = require('../../packages/app/src/renderer/logic.js');
+  for (const code of Object.keys(VIEW_KEYS)) {
+    const letter = code.replace(/^Key/, '');
+    assert.ok(readme.includes(`Ctrl+Shift+${letter}`), `README mentions Ctrl+Shift+${letter}`);
+  }
+});
+
+test('README points at the changelog and the plugin dashboards guide', () => {
+  assert.ok(readme.includes('(CHANGELOG.md)'), 'changelog linked');
+  assert.ok(readme.includes('(docs/PLUGIN-DASHBOARDS.md)'), 'plugin guide linked');
 });

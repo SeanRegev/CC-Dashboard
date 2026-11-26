@@ -62,6 +62,62 @@ function makeProjects() {
   fs.writeFileSync(path.join(DEMO, MARKER), 'made by scripts/readme-screenshots.js\n');
 }
 
+/**
+ * The rest of the README pictures, from the same run: the project grid, the role dialog (F2), the
+ * Inbox, the Board, the Library's Plugins tab, Dashboards and Settings in the light theme.
+ * `d` drives the window: click(selector), press(key, mods), waitFor(JS expression), sleep(ms).
+ * `shot(name)` saves <name>.png. Used by main() (Playwright) and by the mock-core check (CDP).
+ * @param {{click:(sel:string)=>Promise<any>, press:(key:string, mods?:{ctrl?:boolean, shift?:boolean, code?:string})=>Promise<any>, waitFor:(expr:string)=>Promise<any>, sleep:(ms:number)=>Promise<any>}} d
+ * @param {(name:string)=>Promise<any>} shot
+ * @param {{space:string, roleAgent:string}} o space: the weather-cli space id; roleAgent: the agent F2 renames
+ */
+async function captureViews(d, shot, o) {
+  const open = (/** @type {string} */ name) => d.click(`.view-switch button[data-view="${name}"]`);
+  // A view that is not ready (say, plugins still listing) is shot as it is, with a warning.
+  const ready = (/** @type {string} */ expr) => d.waitFor(expr).catch(() => console.warn(`not ready yet: ${expr}`));
+
+  // The project grid: the weather-cli agents as live terminals, Main first.
+  await d.click(`button[data-space="${o.space}"]`);
+  await open('grid');
+  await ready(`document.querySelectorAll('.view-grid .tile[data-live="true"]').length >= 1`);
+  await shot('grid');
+
+  // Session roles: F2 on the focused agent opens "Rename / change role".
+  await open('terminals');
+  await d.click(`.agent-card[data-agent="${o.roleAgent}"]`);
+  await d.sleep(800);
+  await d.press('F2', { code: 'F2' });
+  await ready(`!!document.querySelector('[data-modal="agent-edit"]')`);
+  await shot('roles');
+  await d.press('Escape');
+
+  // The Inbox: every permission prompt, answered without opening the terminal.
+  await open('inbox');
+  await ready(`document.querySelectorAll('.view-inbox [data-agent]').length >= 2`);
+  await shot('inbox');
+
+  await open('board');
+  await ready(`document.querySelectorAll('.view-board .board-card').length >= 3`);
+  await shot('board');
+
+  // The Library: the plugins installed on this machine.
+  await open('library');
+  await d.click('.lib-tab[data-tab="plugins"]');
+  await ready(`document.querySelectorAll('.view-library [data-plugin]').length > 0`);
+  await shot('library');
+
+  await open('dashboards');
+  await ready(`!!document.querySelector('.view-dashboards [data-dash]')`);
+  await shot('dashboards');
+
+  // Settings, with the light theme chosen (it applies at once).
+  await d.press(',', { ctrl: true, code: 'Comma' });
+  await ready(`!!document.querySelector('[data-modal="settings"]')`);
+  await d.click('[data-name="theme"] [data-value="light"]');
+  await shot('settings-light');
+  await d.press('Escape');
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   makeProjects();
@@ -161,6 +217,14 @@ async function main() {
     await page.click(`.agent-card[data-agent="${ids.headline}"]`);
     await h.sleep(2500);
     await shot('finished-agent');
+
+    // 6-12. The other pictures, in the same run.
+    await captureViews({
+      click: (sel) => page.click(sel),
+      press: (key, mods = {}) => page.keyboard.press([mods.ctrl && 'Control', mods.shift && 'Shift', key].filter(Boolean).join('+')),
+      waitFor: (expr) => page.waitForFunction(expr, null, { timeout: 15000 }),
+      sleep: h.sleep,
+    }, shot, { space: spaces['weather-cli'].id, roleAgent: ids['fix-tests'] });
   } finally {
     for (const id of Object.values(ids)) await rpc.call('agents.stop', { id }).catch(() => {});
     rpc.close();
@@ -170,4 +234,6 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
+
+module.exports = { captureViews };
