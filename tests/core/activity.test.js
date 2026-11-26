@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { SessionLog, parseTaskNotification, metaPath, fileBase, typeLabel, toolFailed, parseLines } = require('../../packages/core/src/activity');
+const { MAX_SUBAGENTS, SessionLog, parseTaskNotification, metaPath, fileBase, typeLabel, toolFailed, parseLines } = require('../../packages/core/src/activity');
 const { tempHome, rmrf } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, '..', 'fixtures', 'hooks', 'subagent-background.jsonl');
@@ -320,4 +320,17 @@ test('real interactive run: Claude\'s hidden helpers (SubagentStop, no agent_typ
   assert.deepEqual(log.counts(), { running: 0, total: 1 });
   const ids = new Set(entries.map((e) => e.subagentId).filter(Boolean));
   assert.deepEqual([...ids], [log.list()[0].id], 'no log lines for the hidden helpers');
+});
+
+test('a session that starts thousands of subagents keeps a bounded list: the oldest finished go, running ones stay', () => {
+  const log = new SessionLog('main');
+  const n = MAX_SUBAGENTS + 30;
+  const events = [start('a-running')];
+  for (let i = 0; i < n; i++) events.push(start(`a${i}`), ['SubagentStop', { agent_id: `a${i}`, agent_type: 'general-purpose' }]);
+  feed(log, events);
+  assert.ok(log.subagents.size <= MAX_SUBAGENTS, `kept ${log.subagents.size}`);
+  assert.equal(log.titles.size, log.subagents.size, 'titles are dropped with them');
+  assert.ok(log.subagents.has('a-running') && log.subagents.get('a-running').state === 'running');
+  assert.ok(log.subagents.has(`a${n - 1}`), 'the newest is kept');
+  assert.ok(!log.subagents.has('a0'), 'the oldest finished one is gone');
 });

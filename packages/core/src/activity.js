@@ -36,6 +36,8 @@ const LIST_MAX = 1000;
 const META_TRIES = 30;
 const MAX_QUEUE = 50;
 const MAX_TOOL_STARTS = 500;
+/** Subagents kept per session (memory and subagents.json); past it the oldest finished ones are dropped. */
+const MAX_SUBAGENTS = 500;
 const FILES_VERSION = 1;
 /** Kinds written to disk at once; the others (tool calls, many per second) wait for the batch. */
 const BATCHED_KINDS = new Set(['tool', 'tool_done', 'tool_error']);
@@ -350,7 +352,19 @@ class SessionLog {
     this.titles.set(id, info);
     out.changed.add(id);
     this.add(out, now, id, { kind: 'subagent_start', text: title, type });
+    this.trimSubagents(id);
     return sub;
+  }
+
+  /** A session that starts subagents all day must not grow without bound: drop the oldest finished ones. @param {string} keep */
+  trimSubagents(keep) {
+    if (this.subagents.size <= MAX_SUBAGENTS) return;
+    for (const [id, s] of this.subagents) {
+      if (this.subagents.size <= MAX_SUBAGENTS) break;
+      if (id === keep || s.state === 'running') continue;
+      this.subagents.delete(id);
+      this.titles.delete(id);
+    }
   }
 
   /**
@@ -1027,5 +1041,5 @@ class Activity {
 
 module.exports = {
   Activity, SessionLog, parseTaskNotification, metaPath, fileBase, typeLabel, toolFailed, parseLines,
-  DETAIL_MAX, TEXT_MAX, MEM_TAIL, MAX_BYTES, KEEP_ON_ROTATE, FLUSH_MS, EVENT_MS, ERRORS,
+  DETAIL_MAX, TEXT_MAX, MEM_TAIL, MAX_SUBAGENTS, MAX_BYTES, KEEP_ON_ROTATE, FLUSH_MS, EVENT_MS, ERRORS,
 };
