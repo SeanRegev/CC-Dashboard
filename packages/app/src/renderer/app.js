@@ -11,7 +11,7 @@ import {
 } from './logic.js';
 import { TerminalView } from './terminal.js';
 import { renderSidebar } from './views/sidebar.js';
-import { openNewAgentDialog, openQuickSwitcher, isModalOpen, modalKind, closeModal, toast } from './dialogs.js';
+import { openNewAgentDialog, openQuickSwitcher, isModalOpen, foreignModalOpen, modalKind, closeModal, toast } from './dialogs.js';
 import { roleBadge } from './roles.js';
 import { approvalButtons, updateAttention } from './components/approval.js';
 import { createGridView } from './views/grid.js';
@@ -373,7 +373,9 @@ const els = {
   sidebar: /** @type {HTMLElement} */ (document.getElementById('sidebar')),
 };
 
+let renderCount = 0;
 function renderChrome() {
+  renderCount++;
   const visible = visibleIds();
   const focused = focusedId();
   const entries = entriesArr();
@@ -626,7 +628,11 @@ function editTarget() {
   const at = document.activeElement && document.activeElement.closest('.tile[data-agent], .board-card[data-agent], .agent-card[data-agent], .inbox-row[data-agent], .term-slot[data-agent]');
   const id = at && /** @type {HTMLElement} */ (at).dataset.agent;
   if (id && S.entries.has(id)) return id;
-  return S.view === 'terminals' ? focusedId() : null;
+  if (S.view === 'terminals') return focusedId();
+  // focus is on a list or the page, not on an agent: the selected Inbox row, the last focused Grid tile
+  const sel = document.querySelector(S.view === 'inbox' ? '.inbox-row.sel' : S.view === 'grid' ? '.tile.focused' : '.none');
+  const sid = sel && /** @type {HTMLElement} */ (sel).dataset.agent;
+  return sid && S.entries.has(sid) ? sid : null;
 }
 
 window.addEventListener('keydown', (ev) => {
@@ -644,7 +650,7 @@ window.addEventListener('keydown', (ev) => {
     if (sc.action === 'paste') navigator.clipboard.readText().then((t) => t && v.paste(t)).catch(() => {});
     return;
   }
-  if (isModalOpen() && sc.action !== 'quickSwitch') return;
+  if (isModalOpen() && (sc.action !== 'quickSwitch' || foreignModalOpen())) return;
   ev.preventDefault();
   ev.stopPropagation();
   if (sc.action === 'view' && sc.view) { setView(/** @type {any} */ (sc.view)); return; }
@@ -689,6 +695,8 @@ setInterval(scheduleRender, 20000);
   },
   /** Agents that have a TerminalView right now (tabs, panes and live grid tiles). */
   liveTerminals: () => [...S.views.keys()],
+  /** How many times renderChrome ran (to catch render loops). */
+  renders: () => renderCount,
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 

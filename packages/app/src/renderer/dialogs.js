@@ -1,6 +1,7 @@
 // @ts-check
 /** Modal dialogs: new agent, quick switcher. Plus toasts. */
 import { h, icon, kbd } from './dom.js';
+import { roleBadge } from './roles.js';
 import { createRolePicker } from './components/role-picker.js';
 import { filterAgents, describeActivity, suggestAgentName, stateLabel } from './logic.js';
 
@@ -9,8 +10,14 @@ const root = () => /** @type {HTMLElement} */ (document.getElementById('overlay-
 /** @type {{close: () => void, kind: string} | null} */
 let current = null;
 
-export function isModalOpen() { return !!current; }
+/**
+ * Is a dialog open? Also true for the Library's and Dashboards' own dialogs (they draw their own
+ * `.modal-backdrop[data-modal]`), so shortcuts and focus grabs stay out of their way.
+ */
+export function isModalOpen() { return !!current || !!document.querySelector('#overlay-root [data-modal]'); }
 export function modalKind() { return current ? current.kind : null; }
+/** A dialog that is not ours to replace (Library / Dashboards). */
+export function foreignModalOpen() { return !current && isModalOpen(); }
 export function closeModal() { if (current) current.close(); }
 
 /**
@@ -162,7 +169,7 @@ export function openQuickSwitcher(s, onPick) {
       const st = e.status ? e.status.state : 'stopped';
       const li = h('li', { class: `qs-item${i === sel ? ' sel' : ''}`, role: 'option', dataset: { agent: e.agent.id } },
         h('span', { class: `dot st-${st}` }),
-        h('span', { class: 'qs-name' }, e.agent.name),
+        h('span', { class: 'qs-who' }, roleBadge(e.agent, { compact: true }), h('span', { class: 'qs-name' }, e.agent.name)),
         st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : h('span', { class: `qs-state st-${st}` }, stateLabel(st)),
         h('span', { class: 'qs-activity' }, describeActivity(e.status).replace(/^(Done|Stopped) · /, '')),
         h('span', { class: 'qs-space' }, (byId[e.agent.spaceId] || {}).name || e.agent.spaceId));
