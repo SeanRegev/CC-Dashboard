@@ -166,12 +166,15 @@ function confirmIdentity(reg, info, platform = process.platform) {
   return { ok: true, reason: '' };
 }
 
-/** @param {string} file @param {string[]} args @returns {Promise<string>} stdout ('' on failure) */
-function run(file, args) {
+/** @param {string} file @param {string[]} args @param {number} [timeoutMs] @returns {Promise<string>} stdout ('' on failure) */
+function run(file, args, timeoutMs = 5000) {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout: 5000, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+    execFile(file, args, { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(err ? '' : String(stdout)));
   });
 }
+
+/** PowerShell can take well over 5 s to start on Windows (seen on CI): without its answer a node.exe Claude can't be confirmed. */
+const POWERSHELL_TIMEOUT_MS = 20000;
 
 /** @param {number} pid */
 function pidAlive(pid) {
@@ -189,7 +192,7 @@ async function readIdentity(pid, platform) {
     const info = { image };
     // Command line and start time, when PowerShell can tell (it can't always: policies, old systems).
     const script = `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p) { @{ c = $p.CommandLine; s = ([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds() } | ConvertTo-Json -Compress }`;
-    const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]);
+    const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], POWERSHELL_TIMEOUT_MS);
     try {
       const o = JSON.parse(out.trim());
       if (o && typeof o.c === 'string') info.command = o.c;

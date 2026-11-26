@@ -13,6 +13,8 @@ const { projectDirName } = require('../../packages/core/src/transcript');
 const FAKE_REG = path.join(REPO, 'tests', 'fake-claude-registry.js');
 const SESSIONS = path.join(REPO, 'tests', 'fixtures', 'sessions');
 const WRAPPED = claudeCmd(path.join(FIXTURES, 'wrapped-claude.js'));
+// Take over reads the process with PowerShell on Windows, which can be slow to start: give it what the app gives it.
+const TAKEOVER_MS = 45000;
 const SID = '00000000-0000-4000-8000-000000000001';
 const FAST = { CC_EXTERNAL_POLL_MS: '100', CC_EXTERNAL_TAIL_MS: '100', CC_TAKEOVER_TERM_MS: '500' };
 
@@ -133,7 +135,7 @@ test('not listed: our own agents\' sessions, dead pids, junk files; unknown ext 
   for (const m of ['activity.list', 'subagents.list']) {
     await assert.rejects(core.client.call(m, { agentId: 'ext:nope' }), (e) => e.code === 'not_found');
   }
-  await assert.rejects(core.client.call('external.takeOver', { id: 'ext:nope' }), (e) => e.code === 'not_found');
+  await assert.rejects(core.client.call('external.takeOver', { id: 'ext:nope' }, TAKEOVER_MS), (e) => e.code === 'not_found');
 });
 
 test('takeOver: refuses a busy session without force, then ends it and resumes the same conversation here', async (t) => {
@@ -143,12 +145,12 @@ test('takeOver: refuses a busy session without force, then ends it and resumes t
   await waitFor(async () => (await listed(core)).length === 1, { what: 'listed' });
   const before = await waitFor(async () => { const r = await core.client.call('activity.list', { agentId: `ext:${SID}` }); return r.entries.length && r; }, { what: 'outside log' });
   const subsBefore = await core.client.call('subagents.list', { agentId: `ext:${SID}` });
-  await assert.rejects(core.client.call('external.takeOver', { id: `ext:${SID}` }), (e) => e.code === 'still_working');
+  await assert.rejects(core.client.call('external.takeOver', { id: `ext:${SID}` }, TAKEOVER_MS), (e) => e.code === 'still_working');
   assert.ok(o.alive(), 'refused: the process is untouched');
 
   const changed = core.collect('external.changed');
   const created = core.collect('agent.created');
-  const agent = await core.client.call('external.takeOver', { id: `ext:${SID}`, force: true });
+  const agent = await core.client.call('external.takeOver', { id: `ext:${SID}`, force: true }, TAKEOVER_MS);
   await o.exited; // the outside process ended
   assert.equal(agent.sessionId, SID);
   assert.equal(agent.cwd, space.path);
@@ -182,7 +184,7 @@ test('takeOver: a session in a folder outside every space gets a new space; a gi
   fs.mkdirSync(cwd);
   await outside(t, config, ['--session', 'notes-session', '--cwd', cwd, '--status', 'idle']);
   await waitFor(async () => (await listed(core)).length === 1, { what: 'listed' });
-  const agent = await core.client.call('external.takeOver', { id: 'ext:notes-session', name: 'My notes' });
+  const agent = await core.client.call('external.takeOver', { id: 'ext:notes-session', name: 'My notes' }, TAKEOVER_MS);
   assert.equal(agent.name, 'My notes');
   const spaces = await core.client.call('spaces.list');
   const sp = spaces.find((s) => s.id === agent.spaceId);
@@ -194,7 +196,7 @@ test('takeOver: a process that ignores SIGTERM is killed', async (t) => {
   const { core, config, space } = await setup(t);
   const o = await outside(t, config, ['--session', 'stubborn', '--cwd', space.path, '--ignore-term', '--keep-file']);
   await waitFor(async () => (await listed(core)).length === 1, { what: 'listed' });
-  const agent = await core.client.call('external.takeOver', { id: 'ext:stubborn' });
+  const agent = await core.client.call('external.takeOver', { id: 'ext:stubborn' }, TAKEOVER_MS);
   const { signal } = await o.exited;
   assert.equal(signal, 'SIGKILL');
   assert.equal(agent.sessionId, 'stubborn');
@@ -208,7 +210,7 @@ test('takeOver: refuses (and leaves alone) a live process that does not look lik
   fs.mkdirSync(path.join(config, 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(config, 'sessions', `${proc.pid}.json`), JSON.stringify({ pid: proc.pid, sessionId: 'impostor', cwd: space.path, status: 'idle', startedAt: Date.now() }));
   await waitFor(async () => (await listed(core)).length === 1, { what: 'listed' });
-  await assert.rejects(core.client.call('external.takeOver', { id: 'ext:impostor', force: true }), (e) => e.code === 'not_allowed' && /does not look like Claude/.test(e.message));
+  await assert.rejects(core.client.call('external.takeOver', { id: 'ext:impostor', force: true }, TAKEOVER_MS), (e) => e.code === 'not_allowed' && /does not look like Claude/.test(e.message));
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(proc.exitCode, null);
   assert.equal(proc.signalCode, null);
