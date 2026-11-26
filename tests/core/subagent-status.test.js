@@ -144,3 +144,28 @@ test('without subagents nothing changes: a plain turn ends idle, SubagentStop mi
   const mid = run([['UserPromptSubmit', { prompt: 'p' }], ['SubagentStop', {}, { running: 0, total: 1 }]]);
   assert.equal(mid.status.state, 'working');
 });
+
+test('a subagent tool event that reaches the core after the Stop does not leave the session working', () => {
+  // hooks are separate processes: the last PostToolUse of a subagent can arrive after Stop and SubagentStop
+  let cur = run([
+    ['UserPromptSubmit', { prompt: 'go' }],
+    ['SubagentStart', { agent_id: SUB, agent_type: 'general-purpose' }, one],
+    ['Stop', {}, one],
+    ['SubagentStop', { agent_id: SUB }, none],
+  ]);
+  assert.equal(cur.status.state, 'idle');
+  cur = run([['PostToolUse', { agent_id: SUB, tool_name: 'Read', tool_input: { file_path: 'a.txt' } }, none]], cur);
+  assert.equal(cur.status.state, 'idle', 'still idle');
+  assert.equal(cur.status.detail, '');
+  // while a background subagent still runs, a late event keeps "N subagents running"
+  cur = run([
+    ['UserPromptSubmit', { prompt: 'go' }],
+    ['Stop', {}, one],
+    ['PostToolUse', { agent_id: SUB, tool_name: 'Read', tool_input: { file_path: 'a.txt' } }, one],
+  ]);
+  assert.equal(cur.status.state, 'working');
+  assert.equal(cur.status.detail, '1 subagent running');
+  // and during the session's own turn a subagent's tool still means working
+  cur = run([['UserPromptSubmit', { prompt: 'go' }], ['PreToolUse', { agent_id: SUB, tool_name: 'Bash', tool_input: { command: 'ls' } }, one]]);
+  assert.equal(cur.status.state, 'working');
+});

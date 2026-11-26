@@ -97,6 +97,18 @@ function settle(s, running, now) {
 }
 
 /**
+ * A tool event means the session is working, unless it is a subagent's and the session's own turn is over:
+ * hooks are separate processes, so a subagent's last PostToolUse can reach the core after the Stop (or its
+ * SubagentStop). Then nothing follows to settle the session again, so settle it here: working only while
+ * background subagents still run. @param {AgentStatus} s @param {string} sid @param {boolean} turnOver
+ * @param {number} running @param {number} now
+ */
+function busy(s, sid, turnOver, running, now) {
+  if (sid && turnOver) settle(s, running, now);
+  else setState(s, 'working', now);
+}
+
+/**
  * A status once a permission prompt is gone without a tool running (denied, closed in the
  * terminal): idle, or working while background subagents still run.
  * @param {AgentStatus} status @param {{running: number, total: number}} [subagents] @param {number} [now]
@@ -169,7 +181,7 @@ function applyEvent(status, rt, event, payload, now = Date.now(), ctx = {}) {
       break;
     }
     case 'PreToolUse':
-      if (!waitingOnOther) setState(s, 'working', now);
+      if (!waitingOnOther) busy(s, sid, turnOver, running, now);
       if (!sid) {
         s.tool = tool;
         s.detail = summarizeTool(tool, payload.tool_input);
@@ -177,7 +189,7 @@ function applyEvent(status, rt, event, payload, now = Date.now(), ctx = {}) {
       break;
     case 'PostToolUse': {
       if (!waitingOnOther) {
-        setState(s, 'working', now);
+        busy(s, sid, turnOver, running, now);
         r.answeredAt = now;
       }
       if (!sid) counts.tools += 1;
