@@ -59,6 +59,8 @@ async function startCore(opts = {}) {
     CC_HOME: home,
     CC_CLAUDE: opts.claude || claudeCmd(),
     CC_TICK_MS: '50',
+    // Never the real ~/.claude: outside-session discovery and transcript lookups read this folder.
+    CLAUDE_CONFIG_DIR: path.join(home, 'claude-config'),
     ...(opts.env || {}),
   };
   delete env.CLAUDECODE;
