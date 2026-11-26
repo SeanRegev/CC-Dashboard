@@ -24,6 +24,7 @@
   --on-accent: #1B1210;
   --mark-ink: rgba(20, 19, 18, .78);
   --needs-text: #E9D2A6;
+  --needs-ink: var(--needs); /* amber text on a needs-you tint */
   --danger: #E5786D;
   --danger-text: #F0968C;
   --banner-bg: #2A2420;
@@ -82,6 +83,7 @@
   --starting: #2A64B8;
   --stopped: #8A8179;
   --needs-text: #7A4A06;
+  --needs-ink: #7A4A06;
   --danger: #C23B30;
   --danger-text: #B02F25;
   --banner-bg: #FFF4DD;
@@ -130,6 +132,7 @@
     --starting: #2A64B8;
     --stopped: #8A8179;
     --needs-text: #7A4A06;
+    --needs-ink: #7A4A06;
     --danger: #C23B30;
     --danger-text: #B02F25;
     --banner-bg: #FFF4DD;
@@ -201,7 +204,7 @@ kbd {
 .needs-badge {
   flex: none;
   font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
-  color: var(--needs);
+  color: var(--needs-ink);
   background: rgba(var(--needs-rgb), 0.12);
   border: 1px solid rgba(var(--needs-rgb), 0.32);
   border-radius: 999px;
@@ -291,7 +294,7 @@ kbd {
 .tab.st-needs_you.active { background: rgba(var(--needs-rgb), .12); }
 .tab.st-needs_you.active::after { background: var(--needs); }
 .tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; font-weight: 500; }
-.tab-needs { color: var(--needs); font-size: 11px; flex: none; }
+.tab-needs { color: var(--needs-ink); font-size: 11px; flex: none; }
 .tab-close {
   width: 20px; height: 20px; border-radius: 5px; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
@@ -318,7 +321,7 @@ kbd {
 .icon-btn.small { width: 24px; height: 24px; }
 .needs-pill {
   height: 26px; padding: 0 10px; border-radius: 999px;
-  font-size: 11.5px; font-weight: 600; color: var(--needs);
+  font-size: 11.5px; font-weight: 600; color: var(--needs-ink);
   background: rgba(var(--needs-rgb), .1); border: 1px solid rgba(var(--needs-rgb), .35);
   white-space: nowrap;
 }
@@ -465,7 +468,7 @@ kbd {
 .view-switch button { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
 .view-switch button:hover { color: var(--text); }
 .view-switch button.on { background: var(--panel-2); color: var(--text); }
-.view-switch .count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: rgba(var(--needs-rgb), .18); color: var(--needs); font-size: 10px; line-height: 16px; text-align: center; }
+.view-switch .count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: rgba(var(--needs-rgb), .18); color: var(--needs-ink); font-size: 10px; line-height: 16px; text-align: center; }
 .workspace {
   position: relative;
   display: flex; gap: var(--gap);
@@ -524,7 +527,7 @@ kbd {
   background: var(--tint-2);
 }
 .state-chip .dot { width: 6px; height: 6px; box-shadow: none; }
-.state-chip.st-needs_you { color: var(--needs); background: rgba(var(--needs-rgb), .12); }
+.state-chip.st-needs_you { color: var(--needs-ink); background: rgba(var(--needs-rgb), .12); }
 .state-chip.st-working { color: var(--working); background: rgba(var(--working-rgb), .1); }
 .state-chip.st-idle { color: var(--idle); background: rgba(var(--idle-rgb), .1); }
 .state-chip.st-starting { color: var(--starting); background: rgba(var(--starting-rgb), .1); }
