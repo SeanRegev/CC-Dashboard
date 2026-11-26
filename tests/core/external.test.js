@@ -141,6 +141,8 @@ test('takeOver: refuses a busy session without force, then ends it and resumes t
   const { main } = writeTranscripts(config, space.path);
   const o = await outside(t, config, ['--session', SID, '--cwd', space.path, '--status', 'busy', '--name', 'outside work']);
   await waitFor(async () => (await listed(core)).length === 1, { what: 'listed' });
+  const before = await waitFor(async () => { const r = await core.client.call('activity.list', { agentId: `ext:${SID}` }); return r.entries.length && r; }, { what: 'outside log' });
+  const subsBefore = await core.client.call('subagents.list', { agentId: `ext:${SID}` });
   await assert.rejects(core.client.call('external.takeOver', { id: `ext:${SID}` }), (e) => e.code === 'still_working');
   assert.ok(o.alive(), 'refused: the process is untouched');
 
@@ -160,6 +162,14 @@ test('takeOver: refuses a busy session without force, then ends it and resumes t
   assert.deepEqual(argv.slice(0, 2), ['--resume', SID]);
   await core.waitStatus(agent.id, (s) => s.running && s.state === 'idle', 'resumed agent idle');
   assert.ok(fs.existsSync(main), 'the transcript is left alone');
+  // The log and subagents the app showed for it outside carry over to the agent (seq from 1).
+  const after = await core.client.call('activity.list', { agentId: agent.id });
+  const carried = after.entries.slice(0, before.entries.length);
+  assert.deepEqual(carried.map((e) => [e.kind, e.tool || '', e.subagentId]), before.entries.map((e) => [e.kind, e.tool || '', e.subagentId]));
+  assert.deepEqual(carried.map((e) => e.seq), carried.map((_, i) => i + 1));
+  const subsAfter = await core.client.call('subagents.list', { agentId: agent.id });
+  assert.deepEqual(subsAfter.map((x) => [x.id, x.title]), subsBefore.map((x) => [x.id, x.title]));
+  assert.ok(subsAfter.every((x) => x.agentId === agent.id && x.state !== 'running'));
   // The same session coming back (now ours) is not listed again.
   await outside(t, config, ['--session', SID, '--cwd', space.path]);
   await new Promise((r) => setTimeout(r, 400));

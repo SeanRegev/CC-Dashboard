@@ -827,6 +827,45 @@ class Activity {
     }
   }
 
+  /**
+   * A taken-over outside session brings the log the app showed for it (external.takeOver): it becomes
+   * this agent's log, so the drawer keeps its history. Only for an agent with no log yet. Seq starts at 1;
+   * subagents that were running in the ended process are stopped.
+   * @param {string} agentId @param {{entries?: any[], subagents?: any[]}} from
+   * @returns {number} how many lines were taken
+   */
+  adopt(agentId, from) {
+    const log = this.load(agentId);
+    if (log.seq || !from) return 0;
+    const now = Date.now();
+    /** @type {ActivityEntry[]} */
+    const entries = [];
+    for (const e of Array.isArray(from.entries) ? from.entries : []) {
+      if (!e || typeof e !== 'object' || typeof e.kind !== 'string') continue;
+      /** @type {any} */
+      const x = { ...e, seq: entries.length + 1, at: Number(e.at) || now, subagentId: typeof e.subagentId === 'string' ? e.subagentId : '' };
+      if (x.detail !== undefined) x.detail = clip(x.detail, DETAIL_MAX);
+      if (x.text !== undefined) x.text = clip(x.text, TEXT_MAX);
+      entries.push(x);
+    }
+    const subs = (Array.isArray(from.subagents) ? from.subagents : []).map((sub) => ({
+      ...sub, agentId, counts: { tools: 0, errors: 0, ...(sub && sub.counts) },
+      ...(sub && sub.state === 'running' ? { state: 'stopped', endedAt: now, needsYou: false, tool: '', detail: '' } : {}),
+    }));
+    log.restore({ subagents: subs, titles: {} });
+    if (entries.length) {
+      log.seq = entries.length;
+      log.firstSeq = 1;
+      log.entries = entries.slice(-this.memTail);
+      this.record(agentId, entries, true);
+    }
+    if (subs.length) {
+      this.saveSubagents(agentId);
+      this.subagentsChanged(agentId, subs.map((x) => x.id), true);
+    }
+    return entries.length;
+  }
+
   // ---- writing ----
 
   /** @param {string} agentId @param {ActivityEntry[]} entries @param {boolean} urgent */

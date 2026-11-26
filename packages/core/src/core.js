@@ -463,7 +463,7 @@ class Core extends EventEmitter {
   /**
    * v3 external.takeOver: a conversation started outside the app becomes an agent here, resumed
    * with `claude --resume <sessionId>` in its own cwd. The caller has already ended the outside process.
-   * @param {{spaceId: string, name: string, cwd: string, sessionId: string, transcriptPath?: string}} p
+   * @param {{spaceId: string, name: string, cwd: string, sessionId: string, transcriptPath?: string, log?: {entries?: any[], subagents?: any[]}}} p  log: what the app showed for it outside (carried over)
    * @returns {Agent}
    */
   adoptSession(p) {
@@ -481,6 +481,14 @@ class Core extends EventEmitter {
     this.status.set(agent.id, newStatus(agent.id));
     // launch() resumes only when it can find the transcript: tell it where the outside session kept it.
     this.rt.set(agent.id, { ...newRuntime(), transcriptPath: p.transcriptPath || '' });
+    // Its activity log so far (what the app showed while it ran outside) carries over.
+    if (p.log) {
+      try {
+        this.activity.adopt(agent.id, p.log);
+        const st = this.status.get(agent.id);
+        if (st) this.status.set(agent.id, { ...st, subagents: this.activity.load(agent.id).counts() });
+      } catch { /* the log is a convenience */ }
+    }
     this.store.saveNow();
     this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
     this.launch(agent, { resume: true });

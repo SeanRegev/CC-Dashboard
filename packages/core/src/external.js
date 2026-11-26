@@ -731,7 +731,8 @@ class External {
         spaceId = m ? m.id : this.core.spacesAdd({ path: reg.cwd }).id;
       }
       const name = (p.name || '').trim() || reg.name || path.basename(reg.cwd) || 'agent';
-      return this.core.adoptSession({ spaceId, name, cwd: reg.cwd, sessionId: reg.sessionId, transcriptPath: transcript });
+      const log = { entries: rec.log.map((e) => ({ ...e })), subagents: [...rec.subs.values()].map((x) => ({ ...x.sub, counts: { ...x.sub.counts } })) };
+      return this.core.adoptSession({ spaceId, name, cwd: reg.cwd, sessionId: reg.sessionId, transcriptPath: transcript, log });
     } finally {
       this.taking.delete(p.id);
     }
