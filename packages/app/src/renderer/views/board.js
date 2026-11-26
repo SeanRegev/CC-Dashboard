@@ -42,7 +42,7 @@ export function createBoardView(ctx) {
     h('div', { class: 'bc-activity', title: describeActivity(e.status) }, describeActivity(e.status)),
     h('div', { class: 'bc-foot' },
       h('span', { class: 'bc-ctx', title: `Context window ${pct}% full` }, h('span', { class: `gauge-bar lvl-${gaugeLevel(pct)}` }, h('span', { class: 'gauge-fill', style: { width: `${pct}%` } })), h('span', { class: 'gauge-pct' }, `${pct}%`))),
-    approvalButtons(ctx, e));
+    approvalButtons(ctx, e, { compact: true }));
     attachAgentMenu(node, ctx, id);
     return node;
   }

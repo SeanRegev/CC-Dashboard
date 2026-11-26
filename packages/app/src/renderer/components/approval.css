@@ -11,12 +11,13 @@
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
 }
 .approval .appr-btn { flex: none; }
-.approval .appr-allow { background: rgba(134, 207, 134, .16); border-color: rgba(134, 207, 134, .45); color: #CDEFCD; }
-.approval .appr-allow:hover:not(:disabled) { background: rgba(134, 207, 134, .28); }
-.approval .appr-always { background: rgba(125, 167, 240, .12); border-color: rgba(125, 167, 240, .4); color: #CFDDF8; }
-.approval .appr-always:hover:not(:disabled) { background: rgba(125, 167, 240, .24); }
-.approval .appr-deny { background: transparent; border-color: rgba(229, 120, 109, .45); color: #F2C1BA; }
-.approval .appr-deny:hover:not(:disabled) { background: rgba(229, 120, 109, .16); }
+/* Theme tokens only (styles.css defines them for dark and light). */
+.approval .appr-allow { background: rgba(var(--working-rgb), .16); border-color: rgba(var(--working-rgb), .5); color: var(--text); }
+.approval .appr-allow:hover:not(:disabled) { background: rgba(var(--working-rgb), .28); }
+.approval .appr-always { background: rgba(var(--starting-rgb), .12); border-color: rgba(var(--starting-rgb), .45); color: var(--text); }
+.approval .appr-always:hover:not(:disabled) { background: rgba(var(--starting-rgb), .24); }
+.approval .appr-deny { background: transparent; border-color: rgba(var(--danger-rgb), .5); color: var(--danger-text); }
+.approval .appr-deny:hover:not(:disabled) { background: rgba(var(--danger-rgb), .14); }
 .approval .appr-btn:disabled { opacity: .5; cursor: progress; }
 
 /* Sidebar cards and tiles: the detail on its own line, small buttons under it. */
