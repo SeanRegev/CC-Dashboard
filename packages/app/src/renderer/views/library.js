@@ -336,7 +336,7 @@ export function createLibraryView(ctx) {
   const matches = (...fields) => !q() || fields.some((f) => (f || '').toLowerCase().includes(q()));
 
   function renderPlugins() {
-    const list = [...lib.plugins].filter((/** @type {any} */ p) => matches(p.name, p.description, p.author, p.id)).sort((/** @type {any} */ a, /** @type {any} */ b) => a.name.localeCompare(b.name));
+    const list = [...lib.plugins].filter((/** @type {any} */ p) => matches(p.name, p.description, p.author, p.id)).sort(comparePlugins);
     if (!list.length) { mount(mainEl, h('div', { class: 'lib-empty' }, lib.plugins.length ? 'No plugin matches.' : 'No plugins yet. Find some in Browse.')); return; }
     mount(mainEl, h('div', { class: 'plugin-grid' }, list.map((/** @type {any} */ p) => {
       const sw = h('button', {
@@ -349,7 +349,7 @@ export function createLibraryView(ctx) {
         onkeydown: (/** @type {KeyboardEvent} */ e) => { if (e.key === 'Enter' && e.target === e.currentTarget) { selPlugin = p.id; render(); } },
       },
       h('div', { class: 'plugin-top' }, logo(p), h('div', { class: 'plugin-title' }, h('div', { class: 'plugin-name' }, p.name), h('div', { class: 'plugin-ver' }, p.version === 'unknown' ? 'built in' : `v${p.version}`)), sw),
-      h('div', { class: 'plugin-desc' }, p.description || 'No description.'),
+      h('div', { class: 'plugin-desc' }, pluginDescription(p)),
       h('div', { class: 'plugin-badges' },
         p.updateAvailable ? badge('Update available', 'update') : null, p.managed ? badge('Managed', 'managed') : null, !p.enabled ? badge('Disabled', 'off') : null),
       h('div', { class: 'plugin-meta' }, h('span', null, p.author || '—'), h('span', { class: 'grow' }), h('span', { title: 'Always-on context cost', class: 'tok' }, tokens(p.tokens && p.tokens.alwaysOn))),
@@ -421,7 +421,7 @@ export function createLibraryView(ctx) {
         h('button', { class: 'icon-btn small', title: 'Close', onclick: () => { selPlugin = null; render(); } }, icon('close'))),
       h('div', { class: 'plugin-badges' }, p.updateAvailable ? badge('Update available', 'update') : null, p.managed ? badge('Managed', 'managed') : null, !p.enabled ? badge('Disabled', 'off') : null),
       p.managed ? h('div', { class: 'lib-note' }, 'Managed by your organization or built in: you can turn it on or off, but not update or remove it here.') : null,
-      h('p', { class: 'detail-desc' }, p.description || 'No description.'),
+      h('p', { class: 'detail-desc' }, pluginDescription(p)),
       h('dl', { class: 'detail-facts' },
         h('dt', null, 'Author'), h('dd', null, p.author || '—'),
         h('dt', null, 'Context cost'), h('dd', null, `${tokens(p.tokens && p.tokens.alwaysOn)} added to every session`),
@@ -471,4 +471,23 @@ export function createLibraryView(ctx) {
     update() { renderBar(); },
     show() { load(true); if (tab === 'browse') loadAvailable(); },
   };
+}
+
+/** A plugin with no folder of its own ships with Claude Code. @param {any} p */
+export const isBuiltinPlugin = (p) => !p.installPath || p.version === 'unknown' || /@builtin$/.test(String(p.id || ''));
+
+/**
+ * Plugins list order: yours first, then ones your organization syncs, then Claude Code's built-ins;
+ * by name within each group.
+ * @param {any} a @param {any} b
+ */
+export function comparePlugins(a, b) {
+  const rank = (/** @type {any} */ p) => (isBuiltinPlugin(p) ? 2 : p.managed ? 1 : 0);
+  return rank(a) - rank(b) || String(a.name).localeCompare(String(b.name));
+}
+
+/** @param {any} p */
+export function pluginDescription(p) {
+  if (p.description) return p.description;
+  return isBuiltinPlugin(p) ? 'Built into Claude Code.' : 'No description.';
 }

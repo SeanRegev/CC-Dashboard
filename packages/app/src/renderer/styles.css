@@ -270,7 +270,8 @@ kbd {
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
   position: relative;
-  flex: 0 1 auto; min-width: 92px; max-width: 200px;
+  /* Wide enough for dot + role emoji + a readable name + close; the tab row scrolls when they don't fit. */
+  flex: 0 0 auto; min-width: 128px; max-width: 220px;
   height: 30px;
   display: flex; align-items: center; gap: 8px;
   padding: 0 6px 0 11px;
@@ -290,7 +291,7 @@ kbd {
 .tab.st-needs_you { border-color: rgba(var(--needs-rgb), .38); background: rgba(var(--needs-rgb), .07); color: var(--text); }
 .tab.st-needs_you.active { background: rgba(var(--needs-rgb), .12); }
 .tab.st-needs_you.active::after { background: var(--needs); }
-.tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; font-weight: 500; }
+.tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 6ch; flex: 1 1 auto; font-weight: 500; }
 .tab-needs { color: var(--needs); font-size: 11px; flex: none; }
 .tab-close {
   width: 20px; height: 20px; border-radius: 5px; flex: none;

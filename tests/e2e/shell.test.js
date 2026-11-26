@@ -219,3 +219,11 @@ test('views: the switcher and Ctrl+Shift+<letter> change the main area; opening 
   await app.waitFor(`window.__cc.snapshot().view === 'terminals' && !document.getElementById('workspace').hidden`);
   await app.waitFor(`document.querySelector('.tab[data-agent="docs-pass"].active')`);
 });
+
+test('tabs keep a readable name next to the role emoji, even with the view switcher in the top bar', async () => {
+  await app.press('T', { ctrl: true, shift: true, code: 'KeyT' });
+  for (const id of ['docs-pass', 'refactor-auth', 'fix-flaky-tests']) await app.click(`.agent-card[data-agent="${id}"]`).catch(() => {});
+  await app.waitFor(`document.querySelectorAll('.tab .tab-name').length >= 2`);
+  const widths = await app.evaluate(`[...document.querySelectorAll('.tab .tab-name')].map((n) => n.getBoundingClientRect().width)`);
+  for (const w of widths) assert.ok(w >= 40, `tab name is ${w}px wide`);
+});
