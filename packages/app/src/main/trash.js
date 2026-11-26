@@ -49,7 +49,14 @@ function register(deps) {
   ipcMain.handle('cc:trashSkill', async (_e, /** @type {any} */ msg) => {
     const file = msg && typeof msg.path === 'string' ? msg.path : '';
     if (!isTrashableSkillPath(file)) throw new Error('Not a skill folder that can be deleted here.');
-    await shell.trashItem(path.dirname(file));
+    const folder = path.dirname(file);
+    // Test hook: with CC_TRASH_DIR the folder is moved there instead (headless CI has no system trash).
+    if (process.env.CC_TRASH_DIR) {
+      fs.mkdirSync(process.env.CC_TRASH_DIR, { recursive: true });
+      fs.renameSync(folder, path.join(process.env.CC_TRASH_DIR, `${path.basename(folder)}-${Date.now()}`));
+      return true;
+    }
+    await shell.trashItem(folder);
     return true;
   });
 }
