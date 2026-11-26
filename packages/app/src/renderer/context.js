@@ -4,7 +4,8 @@
  * and act through it; they never import app.js. Add to it only through the lead.
  *
  * @typedef {Object} ViewContext
- * @property {() => any} state              the app state S (read-only by convention): spaces, entries (Map), currentSpace, tabs, layout, view, conn
+ * @property {() => any} state              the app state S (read-only by convention): spaces, entries (Map), currentSpace, tabs, layout, view, conn,
+ *                                          subagents (Map), external, activityFor (v3)
  * @property {import('./client.js').CoreClient} client
  * @property {(method: string, params?: any) => Promise<any>} rpc   client.call that shows a toast on failure and resolves undefined
  * @property {(id: string) => void} openAgent        show the agent in the Terminals view (tab + focused pane)
@@ -20,6 +21,11 @@
  * @property {string} platform
  * @property {(id: string) => import('./terminal.js').TerminalView} terminal  the agent's live TerminalView (created and attached on demand)
  * @property {(id: string) => void} releaseTerminal  detach a TerminalView no tab, pane or tile shows any more
+ * @property {(agentId: string) => any[]} subagents  (v3) Subagent[] of an agent or an outside session ("ext:…"), kept live
+ * @property {() => any[]} external                 (v3) ExternalSession[], kept live
+ * @property {(agentId: string, subagentId?: string) => void} openActivity  (v3) show that session's activity drawer (S.activityFor)
+ * @property {() => void} closeActivity              (v3)
+ * @property {(fn: (agentId: string, entries: any[]) => void) => () => void} onActivity  (v3) new activity lines; returns unsubscribe
  *
  * @typedef {'terminals'|'grid'|'board'|'inbox'|'library'|'dashboards'} ViewName
  *

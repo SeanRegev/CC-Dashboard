@@ -18,6 +18,35 @@
  * @property {Array<[number,string]>} history
  * @property {number} updatedAt
  * @property {number} [needsSince]
+ * @property {{running: number, total: number}} [subagents]  (v3)
+ * @property {string} [askedBy]     (v3) Subagent id the permission prompt is for
+ *
+ * @typedef {Object} Subagent       (v3) see protocol.js
+ * @property {string} id
+ * @property {string} agentId
+ * @property {string} title
+ * @property {string} type
+ * @property {'running'|'done'|'failed'|'stopped'} state
+ * @property {boolean} background
+ * @property {string} [tool]
+ * @property {string} [detail]
+ * @property {boolean} [needsYou]
+ * @property {{tools: number, errors: number}} counts
+ * @property {string} [summary]
+ * @property {number} startedAt
+ * @property {number} [endedAt]
+ * @property {number} updatedAt
+ *
+ * @typedef {Object} ActivityEntry  (v3) see protocol.js
+ * @property {number} seq
+ * @property {number} at
+ * @property {string} subagentId
+ * @property {string} kind
+ * @property {string} [tool]
+ * @property {string} [detail]
+ * @property {number} [ms]
+ * @property {string} [text]
+ * @property {string} [type]
  *
  * @typedef {Object} Runtime        Internal per-agent bookkeeping (persisted, never sent to the app).
  * @property {number} permAt        when the last PermissionRequest arrived

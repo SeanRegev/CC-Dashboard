@@ -1,0 +1,16 @@
+{
+  "pid": 43210,
+  "sessionId": "00000000-0000-4000-8000-0000000000aa",
+  "cwd": "<CWD>",
+  "startedAt": 1795695270919,
+  "procStart": "152",
+  "version": "2.1.332",
+  "peerProtocol": 1,
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "name": "my-session",
+  "nameSource": "derived",
+  "updatedAt": 1795696063679,
+  "status": "busy",
+  "statusUpdatedAt": 1795696063679
+}

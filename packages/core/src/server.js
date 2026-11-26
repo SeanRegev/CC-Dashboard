@@ -65,7 +65,21 @@ const HANDLERS = {
   'dashboards.detach': null, // handled per client
   'dashboards.input': (core, p) => core.dashboards.input(p),
   'dashboards.resize': (core, p) => core.dashboards.resize(p),
+  // v3: an outside session's id starts with "ext:" (ExternalSession.id)
+  'subagents.list': (core, p) => (isExternalId(p.agentId) ? core.external.subagentsList(p) : core.activity.subagentsList(needAgent(core, p))),
+  'activity.list': (core, p) => (isExternalId(p.agentId) ? core.external.activityList(p) : core.activity.list(needAgent(core, p))),
+  'external.list': (core, p) => core.external.list(p),
+  'external.takeOver': (core, p) => core.external.takeOver(p),
 };
+
+/** @param {any} id */
+function isExternalId(id) { return typeof id === 'string' && id.startsWith('ext:'); }
+
+/** Unknown agent ids answer not_found, like every agents.* method. @param {any} core @param {any} p */
+function needAgent(core, p) {
+  core.getAgent(p.agentId);
+  return p;
+}
 for (const m of METHODS) if (!(m in HANDLERS)) throw new Error(`server is missing protocol method ${m}`);
 
 /**

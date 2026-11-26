@@ -55,7 +55,15 @@ const S = {
   loaded: false,
   /** @type {import('./context.js').ViewName} main area: terminal panes, or one of the views */
   view: 'terminals',
+  /** @type {Map<string, any[]>} v3: agentId (or "ext:<sessionId>") → Subagent[], oldest first */
+  subagents: new Map(),
+  /** @type {any[]} v3: ExternalSession[] (Claude sessions the app did not start) */
+  external: [],
+  /** @type {{agentId: string, subagentId?: string}|null} v3: whose activity log the drawer shows */
+  activityFor: null,
 };
+/** @type {Set<(agentId: string, entries: any[]) => void>} v3: listeners for new activity lines */
+const activityListeners = new Set();
 
 const client = new CoreClient({ getConnection: () => bridge.getConnection(), clientName: 'cc-dashboard-app' });
 
@@ -85,9 +93,14 @@ function scheduleRender() {
 
 // ---------- data ----------
 async function loadAll() {
-  const [spaces, list] = await Promise.all([client.call('spaces.list'), client.call('agents.list')]);
+  const [spaces, list, external] = await Promise.all([client.call('spaces.list'), client.call('agents.list'),
+    client.call('external.list').catch(() => [])]);
   S.spaces = spaces || [];
   S.entries = new Map((list || []).map((/** @type {any} */ e) => [e.agent.id, e]));
+  S.external = Array.isArray(external) ? external : [];
+  S.subagents = new Map();
+  await Promise.all([...S.entries.keys(), ...S.external.map((x) => x.id)].map(loadSubagents));
+  if (S.activityFor && !S.entries.has(S.activityFor.agentId) && !S.external.some((x) => x.id === S.activityFor?.agentId)) S.activityFor = null;
   if (!S.loaded) {
     S.loaded = true;
     const ui = loadUi();
@@ -111,6 +124,14 @@ async function loadAll() {
   }
   layoutPanes();
   renderChrome();
+}
+
+/** v3: (re)load one session's subagents. @param {string} agentId */
+async function loadSubagents(agentId) {
+  try {
+    const list = await client.call('subagents.list', { agentId });
+    S.subagents.set(agentId, Array.isArray(list) ? list : []);
+  } catch { S.subagents.set(agentId, []); }
 }
 
 client.on('connection', (/** @type {any} */ st) => {
@@ -140,12 +161,40 @@ client.on('agent.status', (/** @type {any} */ st) => {
 client.on('agent.created', (/** @type {any} */ d) => {
   if (!d || !d.agent) return;
   S.entries.set(d.agent.id, { agent: d.agent, status: d.status, running: true });
+  // A taken-over session arrives with the subagents it already had.
+  loadSubagents(d.agent.id).then(scheduleRender);
   scheduleRender();
 });
 client.on('agent.removed', (/** @type {any} */ d) => {
   if (!d) return;
   closeTab(d.id);
   S.entries.delete(d.id);
+  S.subagents.delete(d.id);
+  if (S.activityFor && S.activityFor.agentId === d.id) S.activityFor = null;
+  scheduleRender();
+});
+// ---- v3: subagents, activity, outside sessions ----
+client.on('subagent.updated', (/** @type {any} */ d) => {
+  if (!d || !d.agentId || !d.subagent) return;
+  const list = S.subagents.get(d.agentId) || [];
+  const i = list.findIndex((s) => s.id === d.subagent.id);
+  if (i >= 0) list[i] = d.subagent; else list.push(d.subagent);
+  S.subagents.set(d.agentId, list);
+  scheduleRender();
+});
+client.on('activity', (/** @type {any} */ d) => {
+  if (!d || !d.agentId || !Array.isArray(d.entries)) return;
+  for (const fn of activityListeners) { try { fn(d.agentId, d.entries); } catch (e) { console.error(e); } }
+});
+client.on('external.changed', (/** @type {any} */ d) => {
+  const before = new Set(S.external.map((x) => x.id));
+  S.external = (d && Array.isArray(d.sessions)) ? d.sessions : [];
+  const now = new Set(S.external.map((x) => x.id));
+  for (const id of before) if (!now.has(id)) {
+    S.subagents.delete(id);
+    if (S.activityFor && S.activityFor.agentId === id) S.activityFor = null;
+  }
+  for (const id of now) if (!before.has(id)) loadSubagents(id).then(scheduleRender);
   scheduleRender();
 });
 client.on('agent.exit', (/** @type {any} */ d) => {
@@ -509,6 +558,11 @@ const ctx = {
   platform,
   terminal: (id) => ensureView(id, { tab: false }),
   releaseTerminal: (id) => releaseTerminal(id),
+  subagents: (agentId) => S.subagents.get(agentId) || [],
+  external: () => S.external,
+  openActivity: (agentId, subagentId) => { S.activityFor = { agentId, ...(subagentId ? { subagentId } : {}) }; scheduleRender(); },
+  closeActivity: () => { S.activityFor = null; scheduleRender(); },
+  onActivity: (fn) => { activityListeners.add(fn); return () => { activityListeners.delete(fn); }; },
 };
 
 /** @param {number} i @param {string|null} id */

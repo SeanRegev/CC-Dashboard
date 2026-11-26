@@ -20,6 +20,8 @@ const { ensureSettings } = require('./hooks-settings');
 const { AgentTerminal, Scrollback } = require('./terminal');
 const { baseCommand, claudeArgs, spawnSpec } = require('./command');
 const { Library } = require('./library');
+const { Activity } = require('./activity');
+const { External } = require('./external');
 const { Dashboards } = require('./dashboards');
 const { parsePrompt } = require('./prompt');
 
@@ -56,13 +58,7 @@ const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
 const PROMPT_READ_MS = 40;
 const APPROVE_CHOICES = ['allow', 'allow_always'];
 
-class RpcError extends Error {
-  /** @param {string} code @param {string} message */
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
+const { RpcError } = require('./errors');
 
 /** @param {string} text */
 function slug(text) {
@@ -114,6 +110,8 @@ class Core extends EventEmitter {
     this.restartPending = new Set();
     this.library = new Library(this);
     this.dashboards = new Dashboards(this);
+    this.activity = new Activity(this);
+    this.external = new External(this);
     /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
     this.promptTimers = new Map();
   }
@@ -139,6 +137,8 @@ class Core extends EventEmitter {
     this.store.saveNow();
     this.ticker = setInterval(() => this.tick(), this.tickMs);
     this.ticker.unref();
+    this.activity.start();
+    this.external.start();
   }
 
   /** @param {string} url @param {string} token */
@@ -224,6 +224,7 @@ class Core extends EventEmitter {
     // Late hooks from a process that is gone must not resurrect it. A natural exit's
     // SessionEnd can race the process exit, so that one is still accepted.
     if (!live && (event !== 'SessionEnd' || this.userStopped.has(id))) return true;
+    try { this.activity.onHook(id, event, payload); } catch { /* the log never breaks status */ }
     this.update(id, (s, r) => {
       const out = applyEvent(s, r, event, payload);
       out.rt.stuck = false;
@@ -646,6 +647,7 @@ class Core extends EventEmitter {
     this.sizes.delete(agent.id);
     const promoted = this.fixRoles();
     this.store.saveNow();
+    try { this.activity.onRemove(agent.id); } catch { /* best effort */ }
     this.broadcast('agent.removed', { id: agent.id });
     for (const a of promoted) this.broadcast('agent.updated', { agent: a });
     return true;
@@ -769,6 +771,8 @@ class Core extends EventEmitter {
   shutdown() {
     if (this.ticker) clearInterval(this.ticker);
     try { this.dashboards.shutdown(); } catch { /* best effort */ }
+    try { this.activity.shutdown(); } catch { /* best effort */ }
+    try { this.external.shutdown(); } catch { /* best effort */ }
     try { this.store.saveNow(); } catch { /* best effort */ }
     for (const [id, term] of this.terms) {
       this.userStopped.add(id);
