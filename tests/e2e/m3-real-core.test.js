@@ -78,9 +78,13 @@ test('real core: subagents show in the tile strip, the sidebar badge and the dra
   assert.ok(await app.evaluate(`document.querySelectorAll('#activity-drawer .act-line').length`) >= 2);
 
   // finished: the session goes idle and the chips collapse to "done"
-  await rpc.waitForEvent('agent.status', (s) => s && s.agentId === agent.id && s.state === 'idle', 30000);
-  const st = (await rpc.call('agents.list', {})).find((/** @type {any} */ r) => r.agent.id === agent.id).status;
-  assert.equal(st.state, 'idle');
+  // Idle is brief between turns: each finished background subagent starts a <task-notification> turn
+  // (working again). Done = idle after all three turns (the prompt's and one per subagent).
+  /** @type {any} */ let st = null;
+  await h.waitUntil(async () => {
+    st = (await rpc.call('agents.list', {})).find((/** @type {any} */ r) => r.agent.id === agent.id).status;
+    return st.state === 'idle' && st.counts.turns >= 3;
+  }, 'the session idle after its task-notification turns', 30000, async () => JSON.stringify(st && { state: st.state, turns: st.counts.turns, subagents: st.subagents }));
   assert.equal(st.subagents.running, 0);
   await app.waitFor(`document.querySelectorAll('${tile} .sub-chip').length === 0 && /2/.test((document.querySelector('${tile} .sub-pill.done') || {}).textContent || '')`, 10000);
   await app.waitFor(`!document.querySelector('.agent-card[data-agent=${A}] .sub-badge')`, 10000);
