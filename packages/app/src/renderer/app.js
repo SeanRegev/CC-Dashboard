@@ -297,6 +297,9 @@ function paneEl(i) {
 
 /** Put each pane's terminal (or the empty state) in place. Terminals are moved, never rebuilt. */
 function layoutPanes() {
+  // While a view (Grid, ...) is shown, its tiles may hold the TerminalView elements: don't take them
+  // back. setView('terminals') calls layoutPanes() and moves every pane agent's element home.
+  if (S.view !== 'terminals') return;
   const n = S.layout.panes.length;
   workspace.classList.toggle('split', n > 1);
   const keep = [];
@@ -417,7 +420,8 @@ function renderChrome() {
     spaces: S.spaces, entries, currentSpace: S.currentSpace, visible, openTabs: new Set(S.tabs),
     conn: S.conn, version: S.version, mod: MOD, view: S.view,
   }, {
-    selectSpace: (id) => ctx.selectSpace(id),
+    // Picking a space shows its agents as the Grid (the Board filters by space itself, so stay on it).
+    selectSpace: (id) => { ctx.selectSpace(id); if (S.view !== 'grid' && S.view !== 'board') setView('grid'); },
     addSpace, openAgent, newAgent, quickSwitch,
   }, ctx);
 
@@ -670,6 +674,8 @@ setInterval(scheduleRender, 20000);
     for (let i = 0; i < buf.length; i++) out.push(buf.getLine(i).translateToString(true));
     return out.join('\n');
   },
+  /** Agents that have a TerminalView right now (tabs, panes and live grid tiles). */
+  liveTerminals: () => [...S.views.keys()],
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 
