@@ -455,6 +455,33 @@ class Core extends EventEmitter {
     return agent;
   }
 
+  /**
+   * v3 external.takeOver: a conversation started outside the app becomes an agent here, resumed
+   * with `claude --resume <sessionId>` in its own cwd. The caller has already ended the outside process.
+   * @param {{spaceId: string, name: string, cwd: string, sessionId: string, transcriptPath?: string}} p
+   * @returns {Agent}
+   */
+  adoptSession(p) {
+    const space = this.spaces.get(p.spaceId);
+    if (!space) throw new RpcError(ERRORS.NOT_FOUND, `no space ${p.spaceId}`);
+    const hasMain = [...this.agents.values()].some((a) => a.spaceId === space.id && a.role && a.role.id === 'main');
+    const name = String(p.name || '').trim().slice(0, 80) || 'agent';
+    /** @type {Agent} */
+    const agent = {
+      id: this.uniqueId(slug(name) || 'agent', this.agents),
+      spaceId: space.id, name, cwd: path.resolve(p.cwd), sessionId: p.sessionId,
+      model: '', effort: '', mode: '', prompt: '', role: roleOf(hasMain ? 'worker' : 'main'), createdAt: Date.now(),
+    };
+    this.agents.set(agent.id, agent);
+    this.status.set(agent.id, newStatus(agent.id));
+    // launch() resumes only when it can find the transcript: tell it where the outside session kept it.
+    this.rt.set(agent.id, { ...newRuntime(), transcriptPath: p.transcriptPath || '' });
+    this.store.saveNow();
+    this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
+    this.launch(agent, { resume: true });
+    return agent;
+  }
+
   // ---- roles ------------------------------------------------------------------------------------
 
   /** Make every agent of a space that is Main a Worker. @param {string} spaceId @returns {Agent[]} the changed agents */
