@@ -127,8 +127,7 @@ test('pluginAction: right command lines, rescans and broadcasts', async (t) => {
   assert.equal(u.ok, true);
   assert.ok(w.calls().find((c) => c.argv[1] === 'uninstall').argv.includes('--keep-data'));
   assert.equal((await w.lib.list({})).plugins.some((p) => p.id === 'tools@my-market'), false);
-  const fail = await w.lib.pluginAction({ id: 'new@my-market', action: 'update' });
-  assert.equal(fail.ok, false);
+  await assert.rejects(w.lib.pluginAction({ id: 'new@my-market', action: 'update' }), { code: 'not_found' });
 });
 
 test('pluginAction: managed plugins, unknown ids and option injection are refused', async (t) => {
