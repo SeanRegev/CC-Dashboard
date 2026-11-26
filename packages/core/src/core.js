@@ -13,7 +13,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { ERRORS, PROTOCOL_VERSION, ROLES } = require('../../shared/protocol');
-const { newStatus, newRuntime, applyEvent, withState } = require('./status');
+const { newStatus, newRuntime, applyEvent, withState, restingStatus } = require('./status');
 const { UsageReader } = require('./usage');
 const { StateStore } = require('./store');
 const { ensureSettings } = require('./hooks-settings');
@@ -199,8 +199,10 @@ class Core extends EventEmitter {
     const name = agent ? agent.name : id;
     if (after.state === 'needs_you' && before.state !== 'needs_you') {
       this.notify(`${name} needs you`, after.message || 'Waiting for you', id, 'needs_you');
-    } else if (event === 'Stop' && rtBefore.turnStartedAt) {
-      const took = after.updatedAt - rtBefore.turnStartedAt;
+    } else if ((event === 'Stop' || event === 'SubagentStop') && after.state === 'idle'
+      && (rtBefore.doneFrom || rtBefore.turnStartedAt)) {
+      // A turn whose background subagents still ran at Stop is done when the last one ends.
+      const took = after.updatedAt - (rtBefore.doneFrom || rtBefore.turnStartedAt);
       if (took >= this.longTurnMs) {
         const secs = Math.floor(took / 1000);
         const m = Math.floor(secs / 60);
@@ -224,9 +226,11 @@ class Core extends EventEmitter {
     // Late hooks from a process that is gone must not resurrect it. A natural exit's
     // SessionEnd can race the process exit, so that one is still accepted.
     if (!live && (event !== 'SessionEnd' || this.userStopped.has(id))) return true;
-    try { this.activity.onHook(id, event, payload); } catch { /* the log never breaks status */ }
+    /** @type {any} */
+    let ctx = {};
+    try { ctx = this.activity.onHook(id, event, payload) || {}; } catch { /* the log never breaks status */ }
     this.update(id, (s, r) => {
-      const out = applyEvent(s, r, event, payload);
+      const out = applyEvent(s, r, event, payload, Date.now(), ctx);
       out.rt.stuck = false;
       if (event === 'Stop') out.rt.turnStartedAt = 0;
       const u = out.rt.transcriptPath ? this.usage.read(out.rt.transcriptPath) : null;
@@ -260,7 +264,8 @@ class Core extends EventEmitter {
       } else if (s.state === 'needs_you' && s.permission && now - (r.permAt || s.needsSince || 0) > this.promptGoneMs
         && this.promptGone(term)) {
         // Answered inside the terminal (e.g. Esc): no hook fires for that.
-        this.update(id, (st, rt) => ({ status: withState(st, 'idle', {}, now), rt: { ...rt, answeredAt: now } }));
+        const subs = this.activity.onPromptGone(id);
+        this.update(id, (st, rt) => ({ status: restingStatus(st, subs, now), rt: { ...rt, answeredAt: now, turnStartedAt: 0 } }));
       } else if (scanUsage && r.transcriptPath && s.state === 'working') {
         const u = this.usage.read(r.transcriptPath);
         if (u && JSON.stringify(u) !== JSON.stringify(s.usage)) {
@@ -752,7 +757,9 @@ class Core extends EventEmitter {
     if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
     const denied = () => {
       const now = Date.now();
-      this.update(id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
+      // Esc ends the turn; background subagents go on (the session stays working while they run).
+      const subs = this.activity.onPromptGone(id);
+      this.update(id, (s, r) => ({ status: restingStatus(s, subs, now), rt: { ...r, answeredAt: now, turnStartedAt: 0 } }));
       return true;
     };
     if (!promptId) {
