@@ -13,7 +13,10 @@
  *   MOCK_EMPTY=1    start with no spaces and no agents
  *
  * Also usable in-process: `const mock = await startMockCore({ static: true })`.
- * Dev-only extra endpoint (not part of the protocol): GET /mock/log?token=… → { inputs, calls }.
+ * Dev-only extra endpoint (not part of the protocol): GET /mock/log?token=… → { inputs, calls, presses }.
+ * agents.approve / agents.deny honour promptId and choice like the real core (stale id → prompt_changed);
+ * the key each answer pressed is recorded in `presses` ({ id, key }). Tests can change a prompt without
+ * telling the app by assigning mock.state.agents.get(id).status.prompt.
  */
 'use strict';
 const fs = require('fs');
@@ -188,6 +191,8 @@ async function startMockCore(opts = {}) {
   const inputs = [];
   /** @type {Array<{method:string, params:any}>} */
   const calls = [];
+  /** @type {Array<{id:string, key:string}>} keys pressed by agents.approve / agents.deny */
+  const presses = [];
   /** @type {Set<import('ws').WebSocket>} */
   const sockets = new Set();
   /** @type {Map<import('ws').WebSocket, Set<string>>} */
@@ -202,7 +207,7 @@ async function startMockCore(opts = {}) {
     const u = new URL(req.url || '/', 'http://127.0.0.1');
     if (!authed(req)) { res.writeHead(401, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: ERRORS.UNAUTHORIZED })); return; }
     if (req.method === 'GET' && u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, version: VERSION })); return; }
-    if (req.method === 'GET' && u.pathname === '/mock/log') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ inputs, calls })); return; }
+    if (req.method === 'GET' && u.pathname === '/mock/log') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ inputs, calls, presses })); return; }
     res.writeHead(404); res.end();
   });
 
@@ -237,7 +242,7 @@ async function startMockCore(opts = {}) {
     if (patch.state && patch.state !== prev) {
       next.history = [...e.status.history, [now, patch.state]].slice(-400);
       if (patch.state === 'needs_you') next.needsSince = now;
-      else { delete next.needsSince; delete next.message; next.permission = false; }
+      else { delete next.needsSince; delete next.message; delete next.prompt; next.permission = false; }
     }
     e.status = next;
     broadcast('agent.status', next);
@@ -359,14 +364,26 @@ async function startMockCore(opts = {}) {
     },
     'agents.approve': (p) => {
       const e = need(p);
-      if (!e.status.permission) throw fail(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt');
-      output(e.agent.id, `${NL}${c.green}✓${c.reset} approved${NL}`);
+      const choice = p.choice === undefined || p.choice === null ? 'allow' : p.choice;
+      if (choice !== 'allow' && choice !== 'allow_always') throw fail(ERRORS.BAD_REQUEST, 'choice must be allow or allow_always');
+      const pr = checkPrompt(e, p);
+      let key = '1';
+      if (pr) {
+        const opts = pr.options.filter((/** @type {any} */ o) => o.kind === choice);
+        if (opts.length !== 1) throw fail(ERRORS.BAD_REQUEST, `this prompt has no ${choice} option`);
+        key = opts[0].key;
+      } else if (choice !== 'allow') {
+        throw fail(ERRORS.BAD_REQUEST, `choice ${choice} needs promptId`);
+      }
+      presses.push({ id: e.agent.id, key });
+      output(e.agent.id, `${NL}${c.green}✓${c.reset} approved (${key})${NL}`);
       setStatus(e.agent.id, { state: 'working', permission: false });
       return true;
     },
     'agents.deny': (p) => {
       const e = need(p);
-      if (!e.status.permission) throw fail(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt');
+      checkPrompt(e, p);
+      presses.push({ id: e.agent.id, key: '\x1b' });
       output(e.agent.id, `${NL}${c.red}✗${c.reset} denied${NL}${PROMPT}`);
       setStatus(e.agent.id, { state: 'idle', permission: false });
       return true;
@@ -395,6 +412,21 @@ async function startMockCore(opts = {}) {
     ...libraryMethods({ broadcast, fail, ERRORS, home }),
     ...dashboardMethods({ broadcast, fail, ERRORS, home, attachments, emitOutput: dashboardOutput }),
   };
+
+  /**
+   * Like the real core: a permission prompt must be waiting, and with promptId it must be the one
+   * "on screen" (status.prompt). Returns that prompt, or null for a v1 call.
+   * @param {any} e @param {any} p
+   */
+  function checkPrompt(e, p) {
+    if (!e.running) throw fail(ERRORS.NOT_RUNNING, 'agent is not running');
+    if (e.status.state !== 'needs_you' || !e.status.permission) throw fail(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt');
+    if (p.promptId === undefined || p.promptId === null) return null;
+    if (typeof p.promptId !== 'string' || !p.promptId) throw fail(ERRORS.BAD_REQUEST, 'promptId must be a non-empty string');
+    const pr = e.status.prompt;
+    if (!pr || pr.id !== p.promptId) throw fail(ERRORS.PROMPT_CHANGED, 'the prompt on screen is not the one you answered');
+    return pr;
+  }
 
   /** Make the current Main of a space a Worker (one Main per space). @param {string} spaceId */
   function demoteMain(spaceId) {
@@ -493,7 +525,7 @@ async function startMockCore(opts = {}) {
   }
 
   return {
-    port, token, home, inputs, calls, state,
+    port, token, home, inputs, calls, presses, state,
     setStatus, output, broadcast,
     /** Close every client socket (simulates a core restart for reconnect tests). */
     dropClients() { for (const ws of sockets) ws.terminate(); },
