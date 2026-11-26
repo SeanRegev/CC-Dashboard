@@ -245,3 +245,11 @@ test('core shutdown stops running dashboards', async (t) => {
   const r = await c.stop();
   assert.ok(r);
 });
+
+test('childSpawn: a Windows command line keeps its program path quoted as argv0, POSIX args pass through', () => {
+  const { childSpawn } = require('../../packages/core/src/dashboards');
+  const win = childSpawn({ file: 'C:\\Program Files\\nodejs\\node.exe', args: '"C:\\Users\\Ann Lee\\codeburn.js" web' });
+  assert.deepEqual(win, { file: 'C:\\Program Files\\nodejs\\node.exe', args: ['"C:\\Users\\Ann Lee\\codeburn.js" web'], verbatim: true, argv0: '"C:\\Program Files\\nodejs\\node.exe"' });
+  const posix = childSpawn({ file: '/usr/bin/codeburn', args: ['web', '--port', '1'] });
+  assert.deepEqual(posix, { file: '/usr/bin/codeburn', args: ['web', '--port', '1'], verbatim: false, argv0: undefined });
+});

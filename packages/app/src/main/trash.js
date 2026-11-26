@@ -36,7 +36,7 @@ function isTrashableSkillPath(p, opts = {}) {
   if (forbidden.some((f) => f && pp.isAbsolute(f) && inside(f, folder))) return false;
   // `.../.claude/plugins/...` wherever .claude is (another profile, a copy)
   const parts = folder.split(/[\\/]+/);
-  for (let i = 0; i + 1 < parts.length; i++) if (parts[i] === '.claude' && parts[i + 1] === 'plugins') return false;
+  for (let i = 0; i + 1 < parts.length; i++) if (fold(parts[i]) === '.claude' && fold(parts[i + 1]) === 'plugins') return false;
   const exists = opts.exists || ((/** @type {string} */ f) => { try { return fs.statSync(f).isFile(); } catch { return false; } });
   const root = pp.dirname(skillsDir);
   if (exists(pp.join(root, '.claude-plugin', 'plugin.json')) || exists(pp.join(root, 'plugin.json'))) return false;

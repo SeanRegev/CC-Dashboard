@@ -16,10 +16,12 @@ const isLocalHost = (h) => h === 'localhost' || h === '127.0.0.1';
 /**
  * Decide what a dashboard window may show. Pure (the file check is injectable for tests).
  * @param {{title?: string, url?: string, file?: string}} spec
- * @param {{exists?: (file: string) => boolean}} [deps]
+ * @param {{exists?: (file: string) => boolean, platform?: NodeJS.Platform}} [deps]  platform: path rules to apply (tests check Windows paths on any OS)
  * @returns {{ok: true, kind: 'url'|'file', href: string, origin?: string, dir?: string, title: string} | {ok: false, error: string}}
  */
 function resolveDashboardTarget(spec, deps = {}) {
+  const win = deps.platform === 'win32';
+  const pp = win ? path.win32 : path;
   const exists = deps.exists || ((/** @type {string} */ f) => { try { return fs.statSync(f).isFile(); } catch { return false; } });
   const title = spec && typeof spec.title === 'string' && spec.title.trim() ? spec.title.trim().slice(0, 80) : 'Dashboard';
   const hasUrl = !!(spec && spec.url);
@@ -34,25 +36,28 @@ function resolveDashboardTarget(spec, deps = {}) {
     return { ok: true, kind: 'url', href: u.toString(), origin: u.origin, title };
   }
   const file = String(spec.file);
-  if (!path.isAbsolute(file)) return { ok: false, error: 'the file must be an absolute path' };
+  if (!pp.isAbsolute(file)) return { ok: false, error: 'the file must be an absolute path' };
   if (!/\.html?$/i.test(file)) return { ok: false, error: 'only .html files can be opened' };
   if (!exists(file)) return { ok: false, error: 'the file does not exist' };
-  return { ok: true, kind: 'file', href: pathToFileURL(file).toString(), dir: path.dirname(file), title };
+  return { ok: true, kind: 'file', href: pathToFileURL(file, { windows: win }).toString(), dir: pp.dirname(file), title };
 }
 
 /**
  * May the window navigate to `to`? url target: same origin only. file target: a file: URL inside the page's folder.
  * @param {{kind: 'url'|'file', origin?: string, dir?: string}} target @param {string} to
+ * @param {NodeJS.Platform} [platform]  path rules to apply (default: this OS)
  */
-function isNavigationAllowed(target, to) {
+function isNavigationAllowed(target, to, platform) {
   let u;
   try { u = new URL(to); } catch { return false; }
   if (target.kind === 'url') return u.origin === target.origin && u.origin !== 'null';
   if (u.protocol !== 'file:' || !target.dir) return false;
+  const win = (platform || process.platform) === 'win32';
+  const pp = win ? path.win32 : path;
   let p;
-  try { p = fileURLToPath(u); } catch { return false; }
-  const rel = path.relative(target.dir, p);
-  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  try { p = fileURLToPath(u, { windows: win }); } catch { return false; }
+  const rel = pp.relative(target.dir, p); // win32: case-insensitive, and a path on another drive comes back absolute
+  return !!rel && rel !== '..' && !rel.startsWith(`..${pp.sep}`) && !pp.isAbsolute(rel);
 }
 
 /** @param {any} _e */

@@ -53,3 +53,25 @@ test('navigation: a file target stays in the plugin folder', () => {
   assert.equal(isNavigationAllowed(t, 'http://127.0.0.1/'), false);
   assert.equal(isNavigationAllowed(t, 'https://example.com/'), false);
 });
+
+test('Windows paths: drive letters, backslashes, spaces, case, other drives, UNC', () => {
+  const win = { platform: 'win32', exists: yes };
+  const page = 'C:\\Users\\Ann Lee\\.claude\\plugins\\cache\\acme\\pager\\ui\\index.html';
+  const t = resolveDashboardTarget({ file: page }, win);
+  assert.equal(t.ok, true);
+  assert.equal(t.href, 'file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/index.html');
+  assert.equal(t.dir, 'C:\\Users\\Ann Lee\\.claude\\plugins\\cache\\acme\\pager\\ui');
+  const to = (/** @type {string} */ u) => isNavigationAllowed(t, u, 'win32');
+  assert.equal(to('file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/app.html#x'), true);
+  assert.equal(to('file:///c:/users/ann%20lee/.claude/plugins/cache/acme/pager/ui/sub/a.html'), true, 'drive letter and folder case do not matter on Windows');
+  assert.equal(to('file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/secret.html'), false, 'parent folder');
+  assert.equal(to('file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/../secret.html'), false, 'dot-dot');
+  assert.equal(to('file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/%2e%2e/secret.html'), false, 'encoded dot-dot');
+  assert.equal(to('file:///D:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/a.html'), false, 'same path on another drive');
+  assert.equal(to('file://evil/share/ui/a.html'), false, 'UNC share');
+  assert.equal(to('file:///C:/Users/Ann%20Lee/.claude/plugins/cache/acme/pager/ui/..hidden.html'), true, 'a file whose name starts with two dots is still inside');
+  assert.equal(to('http://127.0.0.1/'), false);
+  // not absolute / not html on Windows
+  assert.equal(resolveDashboardTarget({ file: 'ui\\index.html' }, win).ok, false);
+  assert.equal(resolveDashboardTarget({ file: 'C:\\x\\run.exe' }, win).ok, false);
+});
