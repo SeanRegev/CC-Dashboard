@@ -11,6 +11,7 @@
  *   MOCK_STATIC=1   no timed status changes (deterministic screenshots/tests)
  *   MOCK_PORT=<n>   listen on a fixed port (default: any free port)
  *   MOCK_EMPTY=1    start with no spaces and no agents
+ *   MOCK_MANY=<n>   add a space "big-project" with n agents (in-process: `startMockCore({ many: n })`)
  *
  * Also usable in-process: `const mock = await startMockCore({ static: true })`.
  * Dev-only extra endpoint (not part of the protocol): GET /mock/log?token=… → { inputs, calls }.
@@ -131,7 +132,7 @@ function slug(s) {
 }
 
 /**
- * @param {{static?:boolean, empty?:boolean, now?:number}} opts
+ * @param {{static?:boolean, empty?:boolean, now?:number, many?:number}} opts
  */
 function seed(opts) {
   const now = opts.now || Date.now();
@@ -156,6 +157,16 @@ function seed(opts) {
     ['storefront', 'perf-audit', 'claude-opus-4-1-20250805', { state: 'idle', updatedAt: now - 3 * 3600e3, lastPrompt: 'Audit bundle size' }, 'Audit bundle size'],
     ['data-pipeline', 'etl-retry', 'claude-sonnet-4-5-20250929', { state: 'needs_you', message: 'Which retry policy: exponential or fixed?', needsSince: now - 90e3, updatedAt: now - 90e3 }, 'Add retries to the nightly ETL job'],
   ];
+  if (opts.many && opts.many > 0) {
+    // `many: N`: one more space, "big-project", with N agents in a mix of states (the first is Main)
+    spaces.push({ id: 'big-project', name: 'big-project', path: path.join(base, 'big-project'), createdAt: now - 86400e3 });
+    const mix = [{ state: 'working', tool: 'Bash', detail: 'npm test' }, { state: 'idle' }, { state: 'needs_you', message: 'Which option?', needsSince: now - 30e3 }, { state: 'starting' }, { state: 'stopped' }];
+    for (let i = 1; i <= opts.many; i++) {
+      const name = `agent-${String(i).padStart(2, '0')}`;
+      if (i === 1) SEED_ROLES[name] = 'main';
+      defs.push(['big-project', name, 'claude-sonnet-4-5-20250929', { ...mix[(i - 1) % mix.length], updatedAt: now - i * 20e3, lastPrompt: `Task ${i}` }, `Task ${i}`]);
+    }
+  }
   const usageFor = (/** @type {string} */ name, /** @type {string} */ model) => {
     const h = [...name].reduce((x, ch) => (x * 31 + ch.charCodeAt(0)) >>> 0, 7);
     const pct = 8 + (h % 80);
@@ -178,7 +189,7 @@ function seed(opts) {
 
 /**
  * Start the mock core.
- * @param {{static?:boolean, empty?:boolean, port?:number, home?:string, writeCoreJson?:boolean, tickMs?:number}} [opts]
+ * @param {{static?:boolean, empty?:boolean, many?:number, port?:number, home?:string, writeCoreJson?:boolean, tickMs?:number}} [opts]
  */
 async function startMockCore(opts = {}) {
   const home = opts.home || homeDir();
@@ -517,6 +528,7 @@ if (require.main === module) {
   startMockCore({
     static: process.env.MOCK_STATIC === '1',
     empty: process.env.MOCK_EMPTY === '1',
+    many: Number(process.env.MOCK_MANY) || 0,
     port: process.env.MOCK_PORT ? Number(process.env.MOCK_PORT) : 0,
   }).then((mock) => {
     console.log(`mock core on 127.0.0.1:${mock.port} (core.json in ${mock.home})`);

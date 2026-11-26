@@ -296,7 +296,14 @@ export function createGridView(ctx) {
     }
     if (ids.join('\0') !== order.join('\0')) {
       order = ids;
-      tilesEl.replaceChildren(...ids.map((id) => /** @type {Tile} */ (tiles.get(id)).root));
+      // Move only what is out of place; a node that is moved loses the keyboard focus, so give it back.
+      const active = /** @type {HTMLElement|null} */ (document.activeElement);
+      const keep = active && tilesEl.contains(active) ? active : null;
+      ids.forEach((id, i) => {
+        const node = /** @type {Tile} */ (tiles.get(id)).root;
+        if (tilesEl.children[i] !== node) tilesEl.insertBefore(node, tilesEl.children[i] || null);
+      });
+      if (keep && keep.isConnected && document.activeElement !== keep) keep.focus({ preventScroll: true });
     }
     title.textContent = space ? space.name : 'No space';
     count.textContent = ids.length ? `${ids.length} agent${ids.length === 1 ? '' : 's'}` : '';

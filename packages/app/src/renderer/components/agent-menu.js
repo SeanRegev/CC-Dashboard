@@ -48,7 +48,6 @@ export function openAgentMenu(ctx, id, x, y) {
     document.removeEventListener('mousedown', onOutside, true);
     window.removeEventListener('blur', close);
     window.removeEventListener('resize', close);
-    document.removeEventListener('scroll', close, true);
   };
   /** @param {MouseEvent} e */
   const onOutside = (e) => { if (!menu.contains(/** @type {Node} */ (e.target))) close(); };
@@ -112,5 +111,4 @@ export function openAgentMenu(ctx, id, x, y) {
   document.addEventListener('mousedown', onOutside, true);
   window.addEventListener('blur', close);
   window.addEventListener('resize', close);
-  document.addEventListener('scroll', close, true);
 }
