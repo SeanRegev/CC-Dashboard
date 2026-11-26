@@ -226,6 +226,9 @@ export function mergeEntries(a, b, cap = 60) {
  * @param {{name:string, entrypoint?:string, cwd:string, state:string, tool?:string, detail?:string}} x
  * @param {{working: boolean, spaceName: string|null}} o
  */
+/** external.takeOver can need ~13 s on the core plus process queries on Windows. */
+export const TAKEOVER_TIMEOUT_MS = 45000;
+
 export function takeOverCopy(x, o) {
   const where = entrypointLabel(x.entrypoint);
   const whereIn = where === 'Terminal' ? 'the terminal' : where;
@@ -297,7 +300,8 @@ export function openTakeOverDialog(ctx, x) {
     draw();
     try {
       const cur = live();
-      const agent = await ctx.client.call('external.takeOver', { id: x.id, ...(force ? { force: true } : {}) });
+      // Ending the outside process can take a while (grace period + wait, slower on Windows): allow 45 s.
+      const agent = await ctx.client.call('external.takeOver', { id: x.id, ...(force ? { force: true } : {}) }, { timeout: TAKEOVER_TIMEOUT_MS });
       const S = ctx.state();
       if (agent && !S.entries.has(agent.id)) {
         S.entries.set(agent.id, { agent, status: { agentId: agent.id, state: 'starting', counts: { tools: 0, turns: 0, errors: 0, subagents: 0 }, files: [], usage: { total: 0, context: 0, contextPct: 0, model: agent.model || '' }, history: [], updatedAt: Date.now() }, running: true });

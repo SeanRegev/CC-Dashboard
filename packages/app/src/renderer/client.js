@@ -93,13 +93,15 @@ export class CoreClient {
 
   /**
    * @param {string} method @param {any} [params]
+   * @param {{timeout?: number}} [opts]  timeout in ms for this call (default callTimeout, 15 s); slow calls such as
+   *                                     external.takeOver (ends a process, then resumes it) pass more
    * @returns {Promise<any>}
    */
-  call(method, params = {}) {
+  call(method, params = {}, opts = {}) {
     const id = this.nextId++;
     const msg = JSON.stringify({ id, method, params });
     return new Promise((resolve, reject) => {
-      const timeout = this.opts.callTimeout ?? 15000;
+      const timeout = opts.timeout ?? this.opts.callTimeout ?? 15000;
       const timer = timeout > 0 ? setTimeout(() => {
         this.pending.delete(id);
         this.queue = this.queue.filter((q) => q.id !== id);
