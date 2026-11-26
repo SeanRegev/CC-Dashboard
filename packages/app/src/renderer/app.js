@@ -100,8 +100,11 @@ async function loadAll() {
   S.spaces = spaces || [];
   S.entries = new Map((list || []).map((/** @type {any} */ e) => [e.agent.id, e]));
   S.external = Array.isArray(external) ? external : [];
-  S.subagents = new Map();
-  await Promise.all([...S.entries.keys(), ...S.external.map((x) => x.id)].map(loadSubagents));
+  // Subagents load in the background: the first paint (and a reconnect's re-layout) must not wait for one
+  // request per session. What was there before stays on screen until each list is replaced.
+  const sessionIds = new Set([...S.entries.keys(), ...S.external.map((x) => x.id)]);
+  for (const id of [...S.subagents.keys()]) if (!sessionIds.has(id)) S.subagents.delete(id);
+  Promise.all([...sessionIds].map(loadSubagents)).then(scheduleRender, () => {});
   if (S.activityFor && !S.entries.has(S.activityFor.agentId) && !S.external.some((x) => x.id === S.activityFor?.agentId)) S.activityFor = null;
   if (!S.loaded) {
     S.loaded = true;
