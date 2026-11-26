@@ -80,6 +80,29 @@ function parseJsonOutput(text) {
   return null;
 }
 
+/**
+ * Is version a newer than b? Dotted numbers compare numerically ("1.10.0" > "1.9.2"); a release beats its
+ * pre-release ("1.0.0" > "1.0.0-beta"); anything that isn't a version ('unknown', '') is never newer.
+ * @param {any} a @param {any} b
+ */
+function isNewerVersion(a, b) {
+  const parse = (/** @type {any} */ v) => {
+    const m = /^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?$/.exec(String(v || '').trim());
+    return m ? { nums: m[1].split('.').map(Number), pre: m[2] || '' } : null;
+  };
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < Math.max(x.nums.length, y.nums.length); i++) {
+    const d = (x.nums[i] || 0) - (y.nums[i] || 0);
+    if (d) return d > 0;
+  }
+  if (x.pre === y.pre) return false;
+  if (!x.pre) return true;  // release > pre-release
+  if (!y.pre) return false;
+  return x.pre.localeCompare(y.pre, 'en', { numeric: true }) > 0;
+}
+
 /** Pull "Always-on: ~873 tok" (or "~1.2k tok") out of `claude plugin details`. @param {string} text @returns {number|undefined} */
 function parseAlwaysOn(text) {
   const m = /Always-on:\s*~?\s*([\d.,]+)\s*(k)?\s*tok/i.exec(text);
@@ -265,8 +288,10 @@ class Library {
     }
 
     this.cache = { plugins, skills, marketplaces, scannedAt: Date.now(), errors };
+    this.applyUpdates();
     this.emitChanged();
     for (const p of plugins) this.queueTokens(p);
+    this.checkUpdates();
     return this.cache;
   }
 
@@ -346,6 +371,42 @@ class Library {
       }
     }
     return out;
+  }
+
+  // ---- updates: installed version vs the marketplace's (`plugin list --available` has versions) ----
+
+  /** Read marketplace versions in the background (at most every 10 minutes), then mark updates. */
+  checkUpdates() {
+    if (this.disposed || this.updatesRunning) return;
+    if (this.latestVersions && Date.now() - this.latestAt < 10 * 60e3) return;
+    this.updatesRunning = true;
+    this.run(['plugin', 'list', '--available', '--json'], { timeout: 60000 }).then((r) => {
+      const j = parseJsonOutput(r.stdout);
+      if (!j || !Array.isArray(j.available)) return;
+      /** @type {Map<string, string>} */
+      const latest = new Map();
+      for (const a of j.available) {
+        const id = a && (a.pluginId || a.id);
+        if (typeof id === 'string' && typeof a.version === 'string' && a.version) latest.set(id, a.version);
+      }
+      this.latestVersions = latest;
+      this.latestAt = Date.now();
+      if (this.applyUpdates()) this.emitChanged();
+    }).catch(() => { /* no marketplace info: no badges */ }).finally(() => { this.updatesRunning = false; });
+  }
+
+  /** Mark plugins whose marketplace version is newer. @returns {boolean} whether anything changed */
+  applyUpdates() {
+    if (!this.cache || !this.latestVersions) return false;
+    let changed = false;
+    for (const p of this.cache.plugins) {
+      if (p.managed) continue; // can't be updated here anyway
+      const v = this.latestVersions.get(p.id);
+      const want = v !== undefined && isNewerVersion(v, p.version);
+      if (want && !p.updateAvailable) { p.updateAvailable = true; changed = true; }
+      // A plugin the CLI itself reported as outdated keeps its badge.
+    }
+    return changed;
   }
 
   // ---- context cost (`claude plugin details` is slow: read it in the background) -----------
@@ -482,6 +543,7 @@ class Library {
     else if (action === 'remove') args = ['plugin', 'marketplace', 'remove', checkId(p.name, 'marketplace name')];
     else if (action === 'update') args = ['plugin', 'marketplace', 'update', ...(p.name ? [checkId(p.name, 'marketplace name')] : [])];
     else throw rpcError(ERRORS.BAD_REQUEST, `unknown marketplace action "${action}"`);
+    this.latestAt = 0; // marketplace versions may change: check updates again on the next scan
     const r = await this.run(args, { timeout: 180000 });
     const ok = r.code === 0;
     const text = (r.stdout.trim().split(/\r?\n/).filter(Boolean).pop() || r.stderr.trim() || r.error || '').slice(0, 500);
@@ -588,4 +650,4 @@ function parseConfigure(j) {
   return { options, values };
 }
 
-module.exports = { Library, parseFrontMatter, parseAlwaysOn, parseJsonOutput, parseConfigure, skillTemplate };
+module.exports = { Library, parseFrontMatter, parseAlwaysOn, parseJsonOutput, parseConfigure, skillTemplate, isNewerVersion };

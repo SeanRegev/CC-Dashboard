@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { Library, parseFrontMatter, parseAlwaysOn, parseConfigure } = require('../../packages/core/src/library');
+const { Library, isNewerVersion, parseFrontMatter, parseAlwaysOn, parseConfigure } = require('../../packages/core/src/library');
 const { claudeCmd, rmrf, waitFor } = require('./helpers');
 
 const FAKE = path.join(__dirname, '..', 'fixtures', 'library', 'fake-claude-plugin.js');
@@ -37,7 +37,7 @@ function world() {
       { id: 'org@synced', version: '3.0.0', scope: 'synced', enabled: true, installPath: synced },
       { id: 'cc-plugin-telemetry@builtin', version: 'unknown', scope: 'user', enabled: true },
     ],
-    available: [{ pluginId: 'new@my-market', name: 'new', description: 'A new one', marketplaceName: 'my-market' }, { pluginId: 'tools@my-market', name: 'tools', marketplaceName: 'my-market' }],
+    available: [{ pluginId: 'new@my-market', name: 'new', description: 'A new one', marketplaceName: 'my-market' }, { pluginId: 'tools@my-market', name: 'tools', marketplaceName: 'my-market', version: '1.2.0' }, { pluginId: 'org@synced', name: 'org', version: '9.0.0' }],
     marketplaces: [{ name: 'my-market', source: 'github', repo: 'acme/market' }],
     needsCommand: { 'cmd@my-market': 'a'.repeat(64) },
     tokens: { 'tools@my-market': 1200 },
@@ -171,7 +171,7 @@ test('available marks installed plugins; marketplace add/remove/update', async (
   const w = world();
   t.after(w.cleanup);
   const av = await w.lib.available();
-  assert.deepEqual(av.map((a) => [a.id, a.installed, a.marketplace]), [['new@my-market', false, 'my-market'], ['tools@my-market', true, 'my-market']]);
+  assert.deepEqual(av.map((a) => [a.id, a.installed, a.marketplace]).slice(0, 2), [['new@my-market', false, 'my-market'], ['tools@my-market', true, 'my-market']]);
   const add = await w.lib.marketplace({ action: 'add', source: 'acme/second market' });
   assert.equal(add.ok, true);
   assert.deepEqual(w.calls().find((c) => c.argv[2] === 'add').argv, ['plugin', 'marketplace', 'add', 'acme/second market']);
@@ -233,4 +233,27 @@ test('skillWrite: save, create (user and project), validate names, refuse traver
   await assert.rejects(w.lib.skillWrite({ id: path.join(w.cfg, 'skills', 'pdf', 'SKILL.md'), content: 'x' }), { code: 'not_found' });
   assert.equal(fs.existsSync(path.join(w.root, 'evil')), false);
   assert.equal(fs.existsSync(path.join(w.cfg, 'evil')), false);
+});
+
+test('isNewerVersion: numeric parts, pre-releases, junk', () => {
+  assert.equal(isNewerVersion('1.10.0', '1.9.2'), true);
+  assert.equal(isNewerVersion('1.2.0', '1.2.0'), false);
+  assert.equal(isNewerVersion('1.2', '1.2.0'), false);
+  assert.equal(isNewerVersion('2.0.0', '10.0.0'), false);
+  assert.equal(isNewerVersion('1.0.0', '1.0.0-beta.2'), true);
+  assert.equal(isNewerVersion('1.0.0-beta.10', '1.0.0-beta.9'), true);
+  assert.equal(isNewerVersion('1.0.0-beta', '1.0.0'), false);
+  assert.equal(isNewerVersion('v2.1.0', '2.0.9'), true);
+  assert.equal(isNewerVersion('unknown', '1.0.0'), false);
+  assert.equal(isNewerVersion('1.0.0', 'unknown'), false);
+});
+
+test('update available: a newer marketplace version marks the plugin (not managed ones)', async (t) => {
+  const w = world();
+  t.after(w.cleanup);
+  await w.lib.list({ refresh: true });
+  await waitFor(() => w.lib.cache.plugins.find((p) => p.id === 'tools@my-market').updateAvailable === true, { what: 'update badge' });
+  assert.notEqual(w.lib.cache.plugins.find((p) => p.id === 'org@synced').updateAvailable, true, 'managed plugins are not offered updates');
+  // library.changed is coalesced (~60 ms): wait for the event that carries the badge.
+  await waitFor(() => w.events.some(([e, d]) => e === 'library.changed' && d.library.plugins.find((p) => p.id === 'tools@my-market').updateAvailable), { what: 'library.changed with the badge' });
 });
