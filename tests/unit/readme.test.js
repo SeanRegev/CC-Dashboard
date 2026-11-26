@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO = path.join(__dirname, '..', '..');
-const readme = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8');
+const readme = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8').replace(/\r\n/g, '\n'); // CRLF on Windows checkouts
 
 test('README pictures exist and are real screenshots (PNG)', () => {
   const images = [...readme.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)|<img[^>]+src="([^"]+)"/g)].map((m) => m[1] || m[2]);

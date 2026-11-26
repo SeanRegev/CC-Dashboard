@@ -10,8 +10,10 @@ const path = require('path');
 const { readPluginDashboards } = require('../../packages/core/src/dashboards.js');
 
 const REPO = path.join(__dirname, '..', '..');
-const plugin = fs.readFileSync(path.join(REPO, 'docs', 'PLUGIN-DASHBOARDS.md'), 'utf8');
-const changelog = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8');
+// Git on Windows checks text files out with CRLF line endings: normalise before matching.
+const readText = (/** @type {string[]} */ ...parts) => fs.readFileSync(path.join(REPO, ...parts), 'utf8').replace(/\r\n/g, '\n');
+const plugin = readText('docs', 'PLUGIN-DASHBOARDS.md');
+const changelog = readText('CHANGELOG.md');
 
 /** The JSON code blocks of PLUGIN-DASHBOARDS.md, in order. @returns {any[]} */
 function jsonBlocks() {
