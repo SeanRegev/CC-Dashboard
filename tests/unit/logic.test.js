@@ -166,6 +166,14 @@ test('shortcutFor: views on Ctrl+Shift+<letter>, settings on Ctrl+comma, F2 edit
   assert.equal(L.shortcutFor(kev('F2', { ctrl: true, code: 'F2' })), null);
 });
 
+test('shortcutFor: Ctrl+Shift+Y toggles the activity drawer; plain Ctrl+Y stays with the terminal', async () => {
+  const L = await load();
+  assert.deepEqual(L.shortcutFor(kev('Y', { ctrl: true, shift: true, code: 'KeyY' })), { action: 'activity' });
+  assert.deepEqual(L.shortcutFor(kev('Y', { meta: true, shift: true, code: 'KeyY' }), 'darwin'), { action: 'activity' });
+  assert.equal(L.shortcutFor(kev('y', { ctrl: true, code: 'KeyY' })), null);
+  assert.equal(L.shortcutFor(kev('Y', { ctrl: true, shift: true, alt: true, code: 'KeyY' })), null);
+});
+
 test('shortcutFor: copy/paste with Ctrl+Shift, Cmd on macOS', async () => {
   const L = await load();
   assert.deepEqual(L.shortcutFor(kev('C', { ctrl: true, shift: true, code: 'KeyC' })), { action: 'copy' });

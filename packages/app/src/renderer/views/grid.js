@@ -15,6 +15,7 @@ import { gridOrder, describeActivity, cardTime, stateLabel, contextPercent, gaug
 import { roleBadge, roleOf } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
+import { renderSubagentStrip } from '../components/activity.js';
 
 const SNAPSHOT_LINES = 60;
 
@@ -29,6 +30,7 @@ const SNAPSHOT_LINES = 60;
  * @property {HTMLElement} activity
  * @property {HTMLElement} time
  * @property {HTMLElement} approvalSlot
+ * @property {HTMLElement} subsSlot       M3 Activity UI: the subagent strip under the header
  * @property {string} approvalKey
  * @property {HTMLButtonElement} runBtn
  * @property {HTMLElement} host
@@ -147,6 +149,7 @@ export function createGridView(ctx) {
     });
     const expandBtn = h('button', { class: 'icon-btn small tile-expand', type: 'button', title: 'Expand (Enter or double-click)', 'aria-label': 'Expand tile', onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); toggleExpand(id); } }, '⤢');
     const head = h('div', { class: 'tile-head' }, dot, badgeSlot, name, activity, time, approvalSlot, runBtn, expandBtn);
+    const subsSlot = h('div', { class: 'tile-subs', hidden: true }); // M3 Activity UI
     const host = h('div', { class: 'tile-term' });
     const snap = h('pre', { class: 'tile-snap placeholder' });
     host.append(snap);
@@ -155,9 +158,9 @@ export function createGridView(ctx) {
     const gaugeBar = h('span', { class: 'gauge-bar' }, gaugeFill);
     const gaugePct = h('span', { class: 'gauge-pct' });
     const foot = h('div', { class: 'tile-foot' }, footState, h('span', { class: 'grow' }), h('span', { class: 'tile-ctx', title: 'Context window' }, h('span', { class: 'tile-ctx-label' }, 'Context'), gaugeBar, gaugePct));
-    const root = h('article', { class: 'tile', tabindex: '0', dataset: { agent: id, live: 'false' } }, head, host, foot);
+    const root = h('article', { class: 'tile', tabindex: '0', dataset: { agent: id, live: 'false' } }, head, subsSlot, host, foot);
     /** @type {Tile} */
-    const t = { id, root, dot, badgeSlot, badgeKey: '', name, activity, time, approvalSlot, approvalKey: '\0', runBtn, host, snap, footState, gaugeFill, gaugeBar, gaugePct, near: false, live: null, snapshot: '', ro: new ResizeObserver(() => { if (t.live) t.live.fit(); }) };
+    const t = { id, root, dot, badgeSlot, badgeKey: '', name, activity, time, approvalSlot, subsSlot, approvalKey: '\0', runBtn, host, snap, footState, gaugeFill, gaugeBar, gaugePct, near: false, live: null, snapshot: '', ro: new ResizeObserver(() => { if (t.live) t.live.fit(); }) };
     t.ro.observe(host);
     root.addEventListener('click', (ev) => {
       if (/** @type {HTMLElement} */ (ev.target).closest('button, a, input')) return;
@@ -211,6 +214,7 @@ export function createGridView(ctx) {
     t.gaugeFill.style.width = `${pct}%`;
     t.gaugeBar.className = `gauge-bar lvl-${gaugeLevel(pct)}`;
     t.gaugePct.textContent = `${pct}%`;
+    renderSubagentStrip(ctx, t.subsSlot, t.id); // M3 Activity UI
   }
 
   function markFocus() {

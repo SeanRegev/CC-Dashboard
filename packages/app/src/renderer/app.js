@@ -14,6 +14,8 @@ import { renderSidebar } from './views/sidebar.js';
 import { openNewAgentDialog, openQuickSwitcher, isModalOpen, foreignModalOpen, modalKind, closeModal, toast } from './dialogs.js';
 import { roleBadge } from './roles.js';
 import { approvalButtons, updateAttention } from './components/approval.js';
+import { createActivityDrawer } from './components/activity.js';
+import { toggleTarget } from './components/activity-logic.js';
 import { createGridView } from './views/grid.js';
 import { createBoardView } from './views/board.js';
 import { createInboxView } from './views/inbox.js';
@@ -466,6 +468,7 @@ function renderChrome() {
     h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')),
     appMenuButton(ctx));
   document.title = needs ? `(${needs}) CC-Dashboard` : 'CC-Dashboard';
+  activityDrawer.update(); // M3 Activity UI
   updateAttention(ctx); // taskbar badge + window flash (Approvals track)
 
   renderSidebar(els.sidebar, {
@@ -564,6 +567,18 @@ const ctx = {
   closeActivity: () => { S.activityFor = null; scheduleRender(); },
   onActivity: (fn) => { activityListeners.add(fn); return () => { activityListeners.delete(fn); }; },
 };
+
+// M3 Activity UI: the drawer lives in the app grid, next to the main area.
+const activityDrawer = createActivityDrawer(ctx);
+/** @type {HTMLElement} */ (document.getElementById('app')).append(activityDrawer.el);
+
+/** The session Ctrl+Shift+Y acts on: the tile / card under keyboard focus, else the focused pane's agent. @returns {string|null} */
+function activityTarget() {
+  const at = document.activeElement && document.activeElement.closest('[data-agent]');
+  const id = at && /** @type {HTMLElement} */ (at).dataset.agent;
+  if (id && (S.entries.has(id) || S.external.some((x) => x.id === id))) return id;
+  return editTarget();
+}
 
 /** @param {number} i @param {string|null} id */
 function renderPaneChrome(i, id) {
@@ -709,6 +724,7 @@ window.addEventListener('keydown', (ev) => {
   ev.stopPropagation();
   if (sc.action === 'view' && sc.view) { setView(/** @type {any} */ (sc.view)); return; }
   if (sc.action === 'settings') { openSettingsDialog(ctx); return; }
+  if (sc.action === 'activity') { S.activityFor = toggleTarget(S.activityFor, activityTarget()); scheduleRender(); return; }
   if (sc.action === 'editAgent') { const id = editTarget(); if (id) openAgentEditDialog(ctx, id); return; }
   const cur = focusedId();
   const idx = cur ? S.tabs.indexOf(cur) : -1;

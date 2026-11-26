@@ -62,6 +62,7 @@ export function openAgentMenu(ctx, id, x, y) {
     menu.replaceChildren(
       h('div', { class: 'ctx-title' }, entry.agent.name),
       item('open', 'Open', () => { close(); ctx.openAgent(id); }),
+      item('activity', 'Activity', () => { close(); ctx.openActivity(id); }, { hint: `${ctx.mod}+Shift+Y` }),
       item('edit', 'Rename / change role…', () => { close(); ctx.editAgent(id); }, { hint: 'F2' }),
       item('make-main', isMain(entry.agent) ? 'Main session (👑)' : 'Make Main 👑', () => { close(); ctx.rpc('agents.update', { id, role: { id: 'main' } }); }, { disabled: isMain(entry.agent) }),
       h('div', { class: 'ctx-sep' }),

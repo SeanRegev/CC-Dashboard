@@ -5,6 +5,7 @@ import { sortAgents, spaceCounts, describeActivity, cardTime, stateLabel, groupB
 import { roleBadge } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
+import { subagentBadge } from '../components/activity.js';
 
 const ALL_KEY = 'cc.sidebar.allSpaces';
 /** "All spaces" mode of the Agents list: a per-viewer convenience, kept in localStorage. */
@@ -68,6 +69,7 @@ export function renderSidebar(root, s, act, ctx) {
     h('span', { class: 'card-meta' },
       roleBadge(e.agent),
       st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : null,
+      ctx ? subagentBadge(ctx, id, e.status) : null, // M3 Activity UI
       h('span', { class: 'card-activity', title: describeActivity(e.status) }, describeActivity(e.status))),
     ctx ? approvalButtons(ctx, e, { compact: true }) : null);
     if (ctx) attachAgentMenu(el, ctx, id);
