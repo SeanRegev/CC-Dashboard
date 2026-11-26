@@ -52,6 +52,7 @@
  * @property {number} permAt        when the last PermissionRequest arrived
  * @property {number} answeredAt    when a prompt was last answered (PostToolUse, approve, deny, ...)
  * @property {number} turnStartedAt when the current turn's UserPromptSubmit arrived
+ * @property {number} [doneFrom]   (v3) start of a turn whose "done" notification waits for its background subagents
  * @property {string} transcriptPath Claude's session JSONL, from hook payloads
  * @property {number} launchAt      when the process was last spawned
  * @property {boolean} hookSinceLaunch any hook received since the last spawn
