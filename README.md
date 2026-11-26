@@ -197,7 +197,7 @@ Take over stops and refuses in these cases:
 
 On Windows, the process checks have so far been tested only with stand-in processes.
 
-![An outside session tile in the grid, marked Outside and VS Code, next to the Take over dialog](docs/images/outside.png)
+![A Claude session started in a terminal, shown as a view-only tile marked Outside with its recent activity and a Take over button, and listed in the sidebar under Outside the app](docs/images/outside.png)
 
 ### Settings
 
