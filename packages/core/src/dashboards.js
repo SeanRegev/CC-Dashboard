@@ -18,7 +18,7 @@ const os = require('os');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const { ERRORS } = require('../../shared/protocol');
-const { baseCommand, splitCommand, spawnSpec, which } = require('./command');
+const { baseCommand, splitCommand, spawnSpec, which, quoteWinArg } = require('./command');
 const { writeFileAtomic, readJson } = require('./store');
 
 const FILE_VERSION = 1;
@@ -71,7 +71,8 @@ function findLocalUrl(text) {
  */
 function childSpawn(spec) {
   const isStr = typeof spec.args === 'string';
-  return { file: spec.file, args: isStr ? [/** @type {string} */ (spec.args)] : /** @type {string[]} */ (spec.args), verbatim: isStr };
+  // A verbatim command line starts with argv0: quote it, or a program under "C:\\Program Files" gets a broken argv[0] (library.js does the same).
+  return { file: spec.file, args: isStr ? [/** @type {string} */ (spec.args)] : /** @type {string[]} */ (spec.args), verbatim: isStr, argv0: isStr ? quoteWinArg(spec.file) : undefined };
 }
 
 /** Kill a process and what it started. @param {import('child_process').ChildProcess} child */
@@ -203,7 +204,7 @@ class Dashboards {
       try { spec = spawnSpec(baseCommand(this.core.env), ['plugin', 'list', '--json'], { env: this.core.env }); } catch { return resolve([]); }
       const c = childSpawn(spec);
       try {
-        const proc = execFile(c.file, c.args, { env: this.core.env, timeout: 15_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: c.verbatim }, (err, stdout) => {
+        const proc = execFile(c.file, c.args, { env: this.core.env, timeout: 15_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: c.verbatim, argv0: c.argv0 }, (err, stdout) => {
           if (err) return resolve([]);
           /** @type {any} */
           let data;
@@ -355,7 +356,7 @@ class Dashboards {
     const spec = spawnSpec(splitCommand(/** @type {string} */ (d.command)), [], { env: this.childEnv(), cwd: this.workDir(d) });
     const c = childSpawn(spec);
     return spawn(c.file, c.args, {
-      cwd: this.workDir(d), env: this.childEnv(), windowsHide: true, windowsVerbatimArguments: c.verbatim,
+      cwd: this.workDir(d), env: this.childEnv(), windowsHide: true, windowsVerbatimArguments: c.verbatim, argv0: c.argv0,
       detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
@@ -433,7 +434,7 @@ class Dashboards {
     try {
       const spec = spawnSpec(splitCommand(/** @type {string} */ (d.command)), [], { env: this.childEnv(), cwd: this.workDir(d) });
       const c = childSpawn(spec);
-      child = spawn(c.file, c.args, { cwd: this.workDir(d), env: this.childEnv(), detached: true, stdio: 'ignore', windowsHide: false, windowsVerbatimArguments: c.verbatim });
+      child = spawn(c.file, c.args, { cwd: this.workDir(d), env: this.childEnv(), detached: true, stdio: 'ignore', windowsHide: false, windowsVerbatimArguments: c.verbatim, argv0: c.argv0 });
     } catch (e) {
       throw rpcError(ERRORS.BAD_REQUEST, /** @type {any} */ (e).message);
     }
@@ -503,4 +504,4 @@ class Dashboards {
   }
 }
 
-module.exports = { Dashboards, isLocalUrl, findLocalUrl, readPluginDashboards };
+module.exports = { Dashboards, isLocalUrl, findLocalUrl, readPluginDashboards, childSpawn };

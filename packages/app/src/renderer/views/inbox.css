@@ -5,7 +5,7 @@
 .inbox-count:not(:empty) {
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(var(--needs-rgb), .18); color: var(--needs); font-size: 12px; font-weight: 600;
+  background: rgba(var(--needs-rgb), .18); color: var(--needs-ink); font-size: 12px; font-weight: 600;
 }
 .inbox-head .grow { flex: 1; }
 .inbox-keys { display: inline-flex; align-items: center; gap: 5px; color: var(--faint); font-size: 11.5px; }

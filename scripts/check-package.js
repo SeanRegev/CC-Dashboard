@@ -80,6 +80,13 @@ async function main() {
   } else {
     console.log('  skip packages/core/src/index.js (not in this checkout yet)');
   }
+  // every core module (the core runs from disk, not from the asar): the M2 ones included
+  const coreSrc = path.join(ROOT, 'packages', 'core', 'src');
+  if (fs.existsSync(coreSrc)) {
+    for (const f of fs.readdirSync(coreSrc).filter((n) => n.endsWith('.js'))) {
+      expectFile(path.join(unpacked, 'packages', 'core', 'src', f), `unpacked packages/core/src/${f}`);
+    }
+  }
   const ptyDir = path.join(unpacked, 'node_modules', 'node-pty');
   expectFile(path.join(ptyDir, 'lib', 'index.js'), 'unpacked node-pty/lib/index.js');
   // node-pty loads its binaries from build/Release (compiled at install) or, failing that, from

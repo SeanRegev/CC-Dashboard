@@ -37,3 +37,9 @@ test('trash: Windows paths, case-insensitive plugin folder', () => {
   assert.equal(isTrashableSkillPath('C:\\Users\\U\\.claude\\skills\\..\\skills\\pdf\\SKILL.md', win), false);
   assert.equal(isTrashableSkillPath('\\\\srv\\share\\proj\\.claude\\skills\\a\\SKILL.md', win), true);
 });
+
+test('Windows: another profile\'s plugins folder is protected whatever its letter case', () => {
+  const win = { platform: 'win32', configDir: 'C:\\Users\\U\\.claude', exists: () => true };
+  assert.equal(isTrashableSkillPath('D:\\Other Profile\\.Claude\\Plugins\\cache\\p\\skills\\x\\SKILL.md', win), false);
+  assert.equal(isTrashableSkillPath('D:\\Other Profile\\.claude\\PLUGINS\\cache\\p\\skills\\x\\SKILL.md', win), false);
+});
