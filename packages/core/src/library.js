@@ -324,7 +324,7 @@ class Library {
       if (isInside(installPath, logo) && isFile(logo)) out.logo = logo;
     }
     const tok = this.tokenCache.get(`${id}@${version}`);
-    if (tok !== undefined) out.tokens = { alwaysOn: tok };
+    if (typeof tok === 'number') out.tokens = { alwaysOn: tok }; // null = asked, no number
     if (p.hasUserConfig || manifest.userConfig) out.hasConfig = true;
     if (p.updateAvailable === true || (typeof p.latestVersion === 'string' && p.latestVersion && p.latestVersion !== version)) out.updateAvailable = true;
     return out;
@@ -434,6 +434,10 @@ class Library {
           this.tokenCache.set(key, n);
           plugin.tokens = { alwaysOn: n };
           this.emitChanged();
+        } else if (key && r.code === 0) {
+          // Answered, but without a number (built-in plugins, some synced ones): remember that too,
+          // or every rescan would run `claude plugin details` for it again.
+          this.tokenCache.set(key, null);
         }
       }).finally(() => { this.tokenJobs--; this.pumpTokens(); });
     }

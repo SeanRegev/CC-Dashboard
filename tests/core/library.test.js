@@ -94,8 +94,10 @@ test('list: context cost arrives later with a library.changed event', async (t) 
   assert.equal(first.plugins.find((p) => p.id === 'tools@my-market').tokens, undefined);
   await waitFor(() => w.events.some(([e, d]) => e === 'library.changed' && d.library.plugins.some((p) => p.tokens && p.tokens.alwaysOn === 1200)), { what: 'tokens event' });
   assert.equal((await w.lib.list({})).plugins.find((p) => p.id === 'tools@my-market').tokens.alwaysOn, 1200);
-  const detailsCalls = w.calls().filter((c) => c.argv[1] === 'details');
-  const again = detailsCalls.length;
+  // Wait until every queued `details` run has finished (the other plugins' too) before counting.
+  await waitFor(() => w.lib.tokenJobs === 0 && w.lib.tokenQueue.length === 0, { what: 'details jobs done' });
+  const again = w.calls().filter((c) => c.argv[1] === 'details').length;
+  assert.ok(again >= 2, 'tools and the synced plugin were asked (built-ins have no folder)');
   await w.lib.list({ refresh: true });
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(w.calls().filter((c) => c.argv[1] === 'details').length, again, 'cached: details is not read twice');
