@@ -28,7 +28,8 @@ const ORDER = ['agent-01', 'agent-03', 'agent-08', 'agent-06', 'agent-04', 'agen
 test.before(async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-e2e-grid-'));
   mock = await startMockCore({ home, static: true, many: 10 });
-  app = await launchApp({ env: { CC_HOME: home }, size: '1280x800' });
+  // GRID_SIZE: e.g. 1024x740 to check a small window (Windows CI clamps the window to its 1024x768 screen).
+  app = await launchApp({ env: { CC_HOME: home }, size: process.env.GRID_SIZE || '1280x800' });
   await app.waitFor(`document.querySelectorAll('.agent-card').length > 0`, 15000);
 });
 
@@ -98,7 +99,8 @@ test('only tiles in or near the viewport hold a live terminal; the others show a
 test('each live terminal is fitted to its tile and the PTY is resized to it', async () => {
   await until(() => mock.calls.some((c) => c.method === 'agents.resize' && c.params.id === 'agent-03'));
   const size = await app.evaluate(`window.__cc.termSize('agent-03')`);
-  assert.ok(size.cols >= 40 && size.cols < 90 && size.rows >= 8 && size.rows < 40, JSON.stringify(size));
+  // Half the grid's width: well under a full-width terminal, but still a usable terminal at small window sizes.
+  assert.ok(size.cols >= 25 && size.cols < 90 && size.rows >= 8 && size.rows < 40, JSON.stringify(size));
   const fits = await app.evaluate(`(() => { const t = document.querySelector('${tileSel('agent-03')} .tile-term').getBoundingClientRect(); const x = document.querySelector('${tileSel('agent-03')} .term-slot').getBoundingClientRect(); return x.bottom <= t.bottom + 1 && x.right <= t.right + 1; })()`);
   assert.equal(fits, true);
 });
@@ -120,6 +122,7 @@ test('clicking a tile focuses it: typing reaches that agent', async () => {
 
 test('double-click, Enter and the button expand a tile to the whole view; Esc and Back return', async () => {
   const dbl = (/** @type {string} */ id) => app.evaluate(`document.querySelector('${tileSel(id)} .tile-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+  const tileCols = await app.evaluate(`(window.__cc.termSize('agent-06') || {}).cols || 0`);
   await dbl('agent-06');
   await app.waitFor(`document.querySelector('${tileSel('agent-06')}').classList.contains('expanded')`);
   const geo = await app.evaluate(`(() => {
@@ -129,7 +132,8 @@ test('double-click, Enter and the button expand a tile to the whole view; Esc an
   assert.ok(geo.w < 2 && geo.h < 2, JSON.stringify(geo));
   assert.equal(geo.others, 0);
   await app.waitFor(`document.querySelector('${tileSel('agent-06')}').dataset.live === 'true'`);
-  await app.waitFor(`window.__cc.termSize('agent-06').cols > 100`); // fitted to the whole view
+  // fitted to the whole view: much wider than the tile (absolute widths depend on the window and the font)
+  await app.waitFor(`window.__cc.termSize('agent-06').cols >= ${Math.max(60, Math.floor(tileCols * 1.7))}`);
   await app.waitFor(`document.activeElement && document.activeElement.tagName === 'TEXTAREA'`); // expand gives the terminal the keyboard
   // Esc with the keyboard on the tile (not in the terminal, where Esc belongs to Claude Code)
   await app.evaluate(`document.querySelector('${tileSel('agent-06')}').focus()`);
@@ -185,7 +189,10 @@ test('a terminal open in a tab moves into its tile while the Grid is shown, and 
   const where = (/** @type {string} */ id) => app.evaluate(`[...document.querySelectorAll('.term-slot[data-agent="${id}"]')].map((el) => el.parentElement.className)`);
   assert.deepEqual(await where('agent-02'), ['term-host']);
   await app.press('G', { ctrl: true, shift: true, code: 'KeyG' });
-  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelector('${tileSel('agent-02')}').dataset.live === 'true'`);
+  await app.waitFor(`window.__cc.snapshot().view === 'grid'`);
+  // Only tiles near the screen are live: bring agent-02's tile into view, as a person would by scrolling.
+  await app.evaluate(`document.querySelector('${tileSel('agent-02')}').scrollIntoView({ block: 'center' })`);
+  await app.waitFor(`document.querySelector('${tileSel('agent-02')}').dataset.live === 'true'`);
   assert.deepEqual(await where('agent-02'), ['tile-term'], 'one element, in the tile');
   assert.equal(await app.evaluate(`document.querySelectorAll('.term-slot').length`), await app.evaluate(`window.__cc.liveTerminals().length`));
   await app.press('T', { ctrl: true, shift: true, code: 'KeyT' });
