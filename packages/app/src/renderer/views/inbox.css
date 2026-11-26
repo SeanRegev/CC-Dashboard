@@ -1,0 +1,38 @@
+/* Inbox view. Owner: the Approvals track (M2). */
+.view-inbox { overflow: hidden; }
+.inbox-head { display: flex; align-items: center; gap: 10px; padding: 14px 6px 10px; flex: none; }
+.inbox-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.inbox-count:not(:empty) {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(var(--needs-rgb), .18); color: var(--needs-ink); font-size: 12px; font-weight: 600;
+}
+.inbox-head .grow { flex: 1; }
+.inbox-keys { display: inline-flex; align-items: center; gap: 5px; color: var(--faint); font-size: 11.5px; }
+.inbox-keys span + .kbd { margin-left: 6px; }
+
+.inbox-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px; outline: none; }
+.inbox-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--card); border: 1px solid var(--line-soft); border-left: 3px solid var(--needs);
+  border-radius: var(--radius-sm); cursor: default;
+}
+.inbox-row:hover { background: var(--card-hi); }
+.inbox-row.sel { border-color: var(--line); border-left-color: var(--needs); box-shadow: 0 0 0 1px rgba(var(--needs-rgb), .55); background: var(--card-hi); }
+.inbox-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inbox-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.inbox-line .grow { flex: 1; }
+.inbox-name { font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-space { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.inbox-wait { color: var(--needs); font-size: 12px; white-space: nowrap; flex: none; }
+.inbox-ask { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.inbox-tool { color: var(--needs); font-weight: 600; flex: none; }
+.inbox-detail {
+  font-family: var(--mono); font-size: 12px; color: var(--text); background: var(--tint-1);
+  padding: 1px 6px; border-radius: 4px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.inbox-question { color: var(--faint); white-space: nowrap; flex: none; }
+.inbox-message { color: var(--needs-text); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.inbox-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.inbox-empty { margin: auto; text-align: center; padding: 40px 0; }

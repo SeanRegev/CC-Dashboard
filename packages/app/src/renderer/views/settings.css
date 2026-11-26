@@ -1,0 +1,56 @@
+/* Settings dialog, agent edit dialog, role picker, ⋯ menu. Owner: the Settings track (M2). Colours: tokens only. */
+.settings-modal { width: min(560px, calc(100vw - 48px)); }
+.settings-body { gap: 18px; }
+.set-section { display: flex; flex-direction: column; gap: 10px; }
+.set-section + .set-section { padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.set-title { margin: 0; font-size: 12px; font-weight: 650; color: var(--text); letter-spacing: .02em; }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+.range-out { min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 550; }
+.font-preview {
+  margin: 0; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  line-height: 1.25; overflow: hidden; white-space: pre; user-select: text;
+}
+.about { display: flex; flex-direction: column; gap: 2px; }
+.quit-row { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.quit-row .hint { flex: 1; }
+.btn.danger-outline { color: var(--danger-text); border-color: rgba(var(--danger-rgb), .5); background: transparent; }
+.btn.danger-outline:hover:not(:disabled) { background: rgba(var(--danger-rgb), .12); }
+.btn.primary.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.confirm-modal { width: min(440px, calc(100vw - 48px)); }
+.confirm-modal .modal-head { padding-bottom: 0; }
+
+/* role picker */
+.role-picker { display: flex; flex-direction: column; gap: 8px; }
+.role-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--muted); font-weight: 550; font-size: 12.5px;
+}
+.role-chip:hover { color: var(--text); background: var(--tint-2); }
+.role-chip.on { color: var(--text); background: var(--accent-soft); border-color: rgba(var(--accent-rgb), .6); }
+.role-chip-emoji { font-size: 13px; }
+.role-custom-fields { display: flex; gap: 10px; }
+.role-custom-fields[hidden], .role-note[hidden] { display: none; }
+.emoji-field { flex: 0 0 90px; }
+.emoji-input { text-align: center; }
+.role-note { color: var(--needs-text); }
+
+/* ⋯ menu */
+.dots { font-size: 18px; line-height: 1; letter-spacing: 1px; transform: translateY(-2px); }
+.app-menu {
+  position: fixed; z-index: 55; min-width: 240px; padding: 5px;
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 7px 10px; border-radius: 7px; color: var(--text); font-size: 12.5px;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--tint-3); outline: none; }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--line-soft); }
+.settings-modal .seg { white-space: nowrap; padding: 0 8px; }
+.settings-modal [data-name="notifications"] .seg[data-value="needs_you"] { flex: 2.4; }

@@ -12,26 +12,49 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { ERRORS, PROTOCOL_VERSION } = require('../../shared/protocol');
+const { ERRORS, PROTOCOL_VERSION, ROLES } = require('../../shared/protocol');
 const { newStatus, newRuntime, applyEvent, withState } = require('./status');
 const { UsageReader } = require('./usage');
 const { StateStore } = require('./store');
 const { ensureSettings } = require('./hooks-settings');
 const { AgentTerminal, Scrollback } = require('./terminal');
 const { baseCommand, claudeArgs, spawnSpec } = require('./command');
+const { Library } = require('./library');
+const { Dashboards } = require('./dashboards');
+const { parsePrompt } = require('./prompt');
 
 /**
  * @typedef {import('./types').AgentStatus} AgentStatus
  * @typedef {import('./types').Runtime} Runtime
  * @typedef {{id:string, name:string, path:string, createdAt:number}} Space
  * @typedef {{id:string, spaceId:string, name:string, cwd:string, sessionId:string, model?:string, effort?:string,
- *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, createdAt:number}} Agent
+ *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, role:Role, createdAt:number}} Agent
+ * @typedef {{id:string, label:string, emoji:string}} Role
  */
+
+/**
+ * A role as the core stores it. Built-in ids get their label and emoji filled in (a custom label
+ * or emoji the user typed wins); 'custom' needs a label. Returns null for anything else.
+ * @param {any} role @returns {Role|null}
+ */
+function normalizeRole(role) {
+  if (!role || typeof role !== 'object' || typeof role.id !== 'string') return null;
+  const clean = (/** @type {any} */ v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) : '');
+  const builtin = ROLES.find((r) => r.id === role.id);
+  if (builtin) return { id: builtin.id, label: clean(role.label, 24) || builtin.label, emoji: role.emoji === undefined ? builtin.emoji : clean(role.emoji, 8) };
+  if (role.id !== 'custom') return null;
+  const label = clean(role.label, 24);
+  return label ? { id: 'custom', label, emoji: clean(role.emoji, 8) } : null;
+}
+const roleOf = (/** @type {string} */ id) => /** @type {Role} */ (normalizeRole({ id }));
 
 /** Set by a running Claude Code session for the processes it starts; never meant for our agents. */
 const PARENT_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_SSE_PORT'];
 const STUCK_MESSAGE = 'Claude is showing a screen that needs you. Open it to check.';
 const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
+/** After terminal output, read the prompt this much later (output comes in bursts). */
+const PROMPT_READ_MS = 40;
+const APPROVE_CHOICES = ['allow', 'allow_always'];
 
 class RpcError extends Error {
   /** @param {string} code @param {string} message */
@@ -87,6 +110,12 @@ class Core extends EventEmitter {
     this.settingsPath = '';
     /** @type {NodeJS.Timeout|null} */ this.ticker = null;
     this.lastUsageScan = 0;
+    /** @type {Set<string>} agents to resume as soon as their process has exited (agents.restart) */
+    this.restartPending = new Set();
+    this.library = new Library(this);
+    this.dashboards = new Dashboards(this);
+    /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
+    this.promptTimers = new Map();
   }
 
   /** Load saved state. Agents whose process is gone (all of them, after a restart) become stopped. */
@@ -105,6 +134,7 @@ class Core extends EventEmitter {
       this.status.set(a.id, st);
       this.rt.set(a.id, { ...newRuntime(), ...(data.runtime[a.id] || {}), stuck: false });
     }
+    this.fixRoles();
     this.store.bind(() => this.snapshot());
     this.store.saveNow();
     this.ticker = setInterval(() => this.tick(), this.tickMs);
@@ -130,7 +160,8 @@ class Core extends EventEmitter {
   /** @param {string} event @param {any} data */
   broadcast(event, data) { this.emit('broadcast', event, data); }
 
-  notify(title, body, agentId) { this.broadcast('notify', { title, body, agentId }); }
+  /** @param {string} title @param {string} body @param {string} agentId @param {'needs_you'|'done'|'exited'|'info'} kind */
+  notify(title, body, agentId, kind) { this.broadcast('notify', { title, body, agentId, kind }); }
 
   /**
    * The one place an agent's status changes.
@@ -144,8 +175,9 @@ class Core extends EventEmitter {
     if (!before || !rtBefore) return null;
     const out = fn(before, rtBefore);
     if (!out) return before;
-    const after = out.status;
     const rt = out.rt || rtBefore;
+    // status.prompt always matches the screen at the moment the status changes.
+    const after = this.withPrompt(id, out.status, rt);
     this.status.set(id, after);
     this.rt.set(id, rt);
     // A state change (working → idle, → needs_you, …) is on disk before anyone hears of it. On
@@ -166,14 +198,14 @@ class Core extends EventEmitter {
     const agent = this.agents.get(id);
     const name = agent ? agent.name : id;
     if (after.state === 'needs_you' && before.state !== 'needs_you') {
-      this.notify(`${name} needs you`, after.message || 'Waiting for you', id);
+      this.notify(`${name} needs you`, after.message || 'Waiting for you', id, 'needs_you');
     } else if (event === 'Stop' && rtBefore.turnStartedAt) {
       const took = after.updatedAt - rtBefore.turnStartedAt;
       if (took >= this.longTurnMs) {
         const secs = Math.floor(took / 1000);
         const m = Math.floor(secs / 60);
         const s = String(secs % 60).padStart(2, '0');
-        this.notify(`${name} is done (${m}m${s}s)`, after.lastPrompt || 'Finished its turn', id);
+        this.notify(`${name} is done (${m}m${s}s)`, after.lastPrompt || 'Finished its turn', id, 'done');
       }
     }
   }
@@ -212,6 +244,9 @@ class Core extends EventEmitter {
     if (scanUsage) this.lastUsageScan = now;
     for (const [id, term] of this.terms) {
       if (!term.running) continue;
+      // Output may have stopped before the last redraw was read (no more data events to trigger it).
+      const st0 = this.status.get(id);
+      if (st0 && st0.state === 'needs_you') this.refreshPrompt(id);
       const s = this.status.get(id);
       const r = this.rt.get(id);
       if (!s || !r) continue;
@@ -232,6 +267,74 @@ class Core extends EventEmitter {
         }
       }
     }
+  }
+
+  // ---- the permission prompt on screen (status.prompt) -------------------------------------
+
+  /** Waiting on a permission prompt: a PermissionRequest, or (older Claude) a "needs your permission" Notification. @param {AgentStatus} s */
+  static permissionStatus(s) {
+    return Boolean(s && s.state === 'needs_you' && (s.permission || /permission/i.test(s.message || '')));
+  }
+
+  /**
+   * The prompt on the agent's screen right now, or null (none, or one the parser can't read).
+   * The fingerprint is salted with the agent and its last PermissionRequest, so the same prompt
+   * asked again, or by another agent, gets another id.
+   * @param {string} id @param {AgentStatus} s @param {Runtime} r
+   */
+  promptFor(id, s, r) {
+    if (!Core.permissionStatus(s)) return null;
+    const term = this.terms.get(id);
+    if (!term || !term.running) return null;
+    return parsePrompt(term.screenText(), { salt: `${id}:${(r && r.permAt) || 0}` });
+  }
+
+  /** s with prompt (and permission) set from the screen, or prompt removed. Returns s itself when nothing changes. */
+  withPrompt(id, s, r) {
+    const p = this.promptFor(id, s, r);
+    if (!p) {
+      if (!s.prompt) return s;
+      const out = { ...s };
+      delete out.prompt;
+      return out;
+    }
+    if (s.prompt && s.prompt.id === p.id && s.permission) return s;
+    return { ...s, prompt: p, permission: true };
+  }
+
+  /** Re-read the prompt and publish a status change if it differs. @param {string} id */
+  refreshPrompt(id) {
+    const s = this.status.get(id);
+    const r = this.rt.get(id);
+    if (!s || !r) return;
+    if (this.withPrompt(id, s, r) === s) return;
+    this.update(id, (st) => ({ status: { ...st, updatedAt: Date.now() } }));
+  }
+
+  /** Terminal output while the agent needs you: read the screen once the burst is parsed. @param {string} id @param {AgentTerminal} term */
+  schedulePromptRead(id, term) {
+    const s = this.status.get(id);
+    if (!s || s.state !== 'needs_you' || this.promptTimers.has(id)) return;
+    const t = setTimeout(() => {
+      this.promptTimers.delete(id);
+      if (this.terms.get(id) !== term || !term.running) return;
+      this.flushScreen(term).then(() => { if (this.terms.get(id) === term) this.refreshPrompt(id); });
+    }, PROMPT_READ_MS);
+    t.unref();
+    this.promptTimers.set(id, t);
+  }
+
+  /**
+   * Resolves true once the headless screen has parsed every byte received so far; false if it
+   * didn't within a moment (huge backlog, terminal gone).
+   * @param {AgentTerminal} term @returns {Promise<boolean>}
+   */
+  flushScreen(term) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), 1000);
+      t.unref();
+      try { term.screen.write('', () => { clearTimeout(t); resolve(true); }); } catch { clearTimeout(t); resolve(false); }
+    });
   }
 
   /** @param {AgentTerminal} term */
@@ -311,6 +414,14 @@ class Core extends EventEmitter {
     for (const k of ['name', 'prompt', 'model', 'effort', 'mode', 'worktree']) {
       if (params[k] !== undefined && params[k] !== null && typeof params[k] !== 'string') throw new RpcError(ERRORS.BAD_REQUEST, `${k} must be a string`);
     }
+    let role = null;
+    if (params.role !== undefined && params.role !== null) {
+      role = normalizeRole(params.role);
+      if (!role) throw new RpcError(ERRORS.BAD_REQUEST, 'role must be { id } with a known id, or { id: "custom", label }');
+    }
+    // The first agent of a space is its Main unless another role was asked for.
+    const hasMain = [...this.agents.values()].some((a) => a.spaceId === space.id && a.role && a.role.id === 'main');
+    if (!role) role = roleOf(hasMain ? 'worker' : 'main');
     let cwd = space.path;
     if (params.worktree) {
       cwd = path.resolve(params.worktree);
@@ -328,16 +439,102 @@ class Core extends EventEmitter {
       effort: params.effort || '',
       mode: params.mode || '',
       prompt: params.prompt || '',
+      role,
       createdAt: Date.now(),
     };
     if (params.worktree) agent.worktree = cwd;
+    const demoted = role.id === 'main' ? this.demoteMain(space.id) : [];
     this.agents.set(agent.id, agent);
     this.status.set(agent.id, newStatus(agent.id));
     this.rt.set(agent.id, newRuntime());
     this.store.saveNow();
     this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
+    for (const a of demoted) this.broadcast('agent.updated', { agent: a });
     this.launch(agent, { resume: false });
     return agent;
+  }
+
+  // ---- roles ------------------------------------------------------------------------------------
+
+  /** Make every agent of a space that is Main a Worker. @param {string} spaceId @returns {Agent[]} the changed agents */
+  demoteMain(spaceId) {
+    const out = [];
+    for (const a of this.agents.values()) {
+      if (a.spaceId !== spaceId || !a.role || a.role.id !== 'main') continue;
+      a.role = roleOf('worker');
+      out.push(a);
+    }
+    return out;
+  }
+
+  /**
+   * Every agent has a role, and every space with agents has exactly one Main (the oldest wins).
+   * Run on load (state from before roles existed) and after an agent is removed.
+   * @returns {Agent[]} agents whose role changed
+   */
+  fixRoles() {
+    const changed = new Set();
+    const bySpace = new Map();
+    for (const a of this.agents.values()) {
+      const r = normalizeRole(a.role);
+      if (!r) { a.role = roleOf('worker'); changed.add(a); } else if (JSON.stringify(r) !== JSON.stringify(a.role)) { a.role = r; changed.add(a); }
+      if (!bySpace.has(a.spaceId)) bySpace.set(a.spaceId, []);
+      bySpace.get(a.spaceId).push(a);
+    }
+    for (const list of bySpace.values()) {
+      list.sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+      const mains = list.filter((a) => a.role.id === 'main');
+      const keep = mains.length ? mains[0] : list[0];
+      for (const a of list) {
+        const want = a === keep ? 'main' : (a.role.id === 'main' ? 'worker' : a.role.id);
+        if (want !== a.role.id) { a.role = roleOf(want); changed.add(a); }
+      }
+    }
+    return [...changed];
+  }
+
+  agentsUpdate(params) {
+    const agent = this.getAgent(params && params.id);
+    let name = agent.name;
+    if (params.name !== undefined) {
+      if (typeof params.name !== 'string' || !params.name.trim()) throw new RpcError(ERRORS.BAD_REQUEST, 'name must be a non-empty string');
+      name = params.name.trim().slice(0, 80);
+    }
+    let role = agent.role;
+    if (params.role !== undefined) {
+      const r = normalizeRole(params.role);
+      if (!r) throw new RpcError(ERRORS.BAD_REQUEST, 'role must be { id } with a known id, or { id: "custom", label }');
+      role = r;
+    }
+    const others = [];
+    if (role.id === 'main' && agent.role.id !== 'main') others.push(...this.demoteMain(agent.spaceId));
+    agent.name = name;
+    agent.role = role;
+    // Taking Main away from the only Main gives it to the oldest other agent (one Main per space).
+    others.push(...this.fixRoles().filter((a) => a !== agent));
+    this.store.saveNow();
+    this.broadcast('agent.updated', { agent });
+    for (const a of new Set(others)) if (a !== agent) this.broadcast('agent.updated', { agent: a });
+    return agent;
+  }
+
+  /** Stop and resume the same conversation, e.g. so it picks up changed plugins. */
+  agentsRestart(params) {
+    const agent = this.getAgent(params && params.id);
+    const term = this.terms.get(agent.id);
+    if (!term || !term.running) {
+      this.launch(agent, { resume: true });
+      return true;
+    }
+    this.restartPending.add(agent.id);
+    this.agentsStop({ id: agent.id });
+    return true;
+  }
+
+  /** Stop every agent and ask the process to exit (index.js listens for 'shutdown-request'). */
+  coreShutdown() {
+    setImmediate(() => this.emit('shutdown-request'));
+    return true;
   }
 
   /** @param {Agent} agent @param {{resume: boolean}} opts */
@@ -369,7 +566,7 @@ class Core extends EventEmitter {
       return;
     }
     this.terms.set(agent.id, term);
-    term.on('data', (data) => this.emit('output', agent.id, data));
+    term.on('data', (data) => { this.emit('output', agent.id, data); this.schedulePromptRead(agent.id, term); });
     term.on('exit', (code) => this.onExit(agent.id, term, code));
   }
 
@@ -402,6 +599,10 @@ class Core extends EventEmitter {
       if (stopped) return s.state === 'stopped' ? null : { status: withState(s, 'stopped', { tool: '' }) };
       return s.state === 'exited' ? null : { status: withState(s, 'exited', { tool: '' }) };
     });
+    if (this.restartPending.delete(id)) {
+      const agent = this.agents.get(id);
+      if (agent) this.launch(agent, { resume: true });
+    }
   }
 
   agentsStop(params) {
@@ -443,8 +644,10 @@ class Core extends EventEmitter {
     this.rt.delete(agent.id);
     this.scrollbacks.delete(agent.id);
     this.sizes.delete(agent.id);
+    const promoted = this.fixRoles();
     this.store.saveNow();
     this.broadcast('agent.removed', { id: agent.id });
+    for (const a of promoted) this.broadcast('agent.updated', { agent: a });
     return true;
   }
 
@@ -483,26 +686,81 @@ class Core extends EventEmitter {
 
   /** Is a permission prompt on screen? Older Claude versions only send a Notification for it. */
   permissionPending(id) {
-    const s = this.status.get(id);
-    return Boolean(s && s.state === 'needs_you' && (s.permission || /permission/i.test(s.message || '')));
+    return Core.permissionStatus(/** @type {AgentStatus} */ (this.status.get(id)));
+  }
+
+  /**
+   * v2: the prompt the user answered (promptId) must still be the one on screen, read NOW; then
+   * act(prompt) presses the key. The check and act run in one synchronous step after the screen
+   * flush: nothing (another approve, a hook) can run in between.
+   * @template T @param {string} id @param {AgentTerminal} term @param {string} promptId
+   * @param {(p: import('./prompt').PermissionPrompt) => T} act @returns {Promise<T>}
+   */
+  async checkedPrompt(id, term, promptId, act) {
+    const flushed = await this.flushScreen(term);
+    if (this.terms.get(id) !== term || !term.running) throw new RpcError(ERRORS.NOT_RUNNING, `agent ${id} is not running`);
+    if (!flushed) throw new RpcError(ERRORS.PROMPT_CHANGED, 'the screen is still changing; check the prompt again');
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const p = this.promptFor(id, /** @type {AgentStatus} */ (this.status.get(id)), /** @type {Runtime} */ (this.rt.get(id)));
+    if (!p || p.id !== promptId) {
+      this.refreshPrompt(id); // let the app see what is there now
+      throw new RpcError(ERRORS.PROMPT_CHANGED, 'the prompt on screen is not the one you answered; check it again');
+    }
+    return act(p);
+  }
+
+  /** @param {any} params */
+  answerParams(params) {
+    if (!params || typeof params !== 'object') throw new RpcError(ERRORS.BAD_REQUEST, 'params required');
+    if (params.promptId !== undefined && params.promptId !== null && (typeof params.promptId !== 'string' || !params.promptId)) {
+      throw new RpcError(ERRORS.BAD_REQUEST, 'promptId must be a non-empty string');
+    }
+    return { id: params.id, promptId: typeof params.promptId === 'string' ? params.promptId : '' };
   }
 
   agentsApprove(params) {
-    const term = this.runningTerm(params && params.id);
-    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
-    term.write('1'); // "1. Yes" is always the first option
-    const now = Date.now();
-    this.update(params.id, (s, r) => ({ status: withState(s, 'working', {}, now), rt: { ...r, answeredAt: now } }));
-    return true;
+    const { id, promptId } = this.answerParams(params);
+    const choice = params.choice === undefined || params.choice === null ? 'allow' : params.choice;
+    if (!APPROVE_CHOICES.includes(choice)) throw new RpcError(ERRORS.BAD_REQUEST, `choice must be one of ${APPROVE_CHOICES.join(', ')}`);
+    const term = this.runningTerm(id);
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const answered = () => {
+      const now = Date.now();
+      this.update(id, (s, r) => ({ status: withState(s, 'working', {}, now), rt: { ...r, answeredAt: now } }));
+      return true;
+    };
+    if (!promptId) {
+      // v1: "1. Yes" is the first option. Anything else needs to know which prompt is on screen.
+      if (choice !== 'allow') throw new RpcError(ERRORS.BAD_REQUEST, `choice ${choice} needs promptId`);
+      term.write('1');
+      return answered();
+    }
+    return this.checkedPrompt(id, term, promptId, (p) => {
+      // By wording, never by position; no fallback to another option.
+      const opts = p.options.filter((o) => o.kind === choice);
+      if (opts.length !== 1) throw new RpcError(ERRORS.BAD_REQUEST, `this prompt has no ${choice === 'allow' ? '"Yes"' : '"don\'t ask again"'} option`);
+      term.rawWrite(opts[0].key); // now, ahead of anything queued: the screen was checked a moment ago
+      return answered();
+    });
   }
 
   agentsDeny(params) {
-    const term = this.runningTerm(params && params.id);
-    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
-    term.write('\x1b'); // Esc cancels; Claude then waits for instructions
-    const now = Date.now();
-    this.update(params.id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
-    return true;
+    const { id, promptId } = this.answerParams(params);
+    const term = this.runningTerm(id);
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const denied = () => {
+      const now = Date.now();
+      this.update(id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
+      return true;
+    };
+    if (!promptId) {
+      term.write('\x1b'); // Esc cancels; Claude then waits for instructions
+      return denied();
+    }
+    return this.checkedPrompt(id, term, promptId, () => {
+      term.rawWrite('\x1b');
+      return denied();
+    });
   }
 
   hello() { return { version: this.version, protocol: PROTOCOL_VERSION }; }
@@ -510,6 +768,7 @@ class Core extends EventEmitter {
   /** Save, then end every agent process. */
   shutdown() {
     if (this.ticker) clearInterval(this.ticker);
+    try { this.dashboards.shutdown(); } catch { /* best effort */ }
     try { this.store.saveNow(); } catch { /* best effort */ }
     for (const [id, term] of this.terms) {
       this.userStopped.add(id);
@@ -518,4 +777,4 @@ class Core extends EventEmitter {
   }
 }
 
-module.exports = { Core, RpcError, slug, defaultTranscriptPath, STUCK_MESSAGE, PROMPT_MARKERS };
+module.exports = { Core, RpcError, slug, defaultTranscriptPath, normalizeRole, STUCK_MESSAGE, PROMPT_MARKERS };

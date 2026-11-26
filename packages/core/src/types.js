@@ -10,6 +10,7 @@
  * @property {string} [detail]
  * @property {string} [message]
  * @property {boolean} [permission]
+ * @property {import('./prompt').PermissionPrompt} [prompt]  read off the screen (prompt.js)
  * @property {string} [lastPrompt]
  * @property {{tools:number, turns:number, errors:number, subagents:number}} counts
  * @property {string[]} files

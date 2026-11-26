@@ -1,23 +1,35 @@
 // @ts-check
 /** Left sidebar: quick-switch button, spaces with counts, agents of the current space. */
 import { h, mount, icon, kbd } from '../dom.js';
-import { sortAgents, spaceCounts, describeActivity, cardTime, stateLabel } from '../logic.js';
+import { sortAgents, spaceCounts, describeActivity, cardTime, stateLabel, groupBySpace } from '../logic.js';
+import { roleBadge } from '../roles.js';
+import { approvalButtons } from '../components/approval.js';
+import { attachAgentMenu } from '../components/agent-menu.js';
+
+const ALL_KEY = 'cc.sidebar.allSpaces';
+/** "All spaces" mode of the Agents list: a per-viewer convenience, kept in localStorage. */
+let allSpaces = (() => { try { return localStorage.getItem(ALL_KEY) === '1'; } catch { return false; } })();
+/** @param {boolean} on */
+function setAllSpaces(on) { allSpaces = on; try { localStorage.setItem(ALL_KEY, on ? '1' : '0'); } catch { /* storage unavailable */ } }
 
 /**
  * @param {HTMLElement} root
  * @param {{
  *   spaces: any[], entries: any[], currentSpace: string|null, visible: Set<string>, openTabs: Set<string>,
- *   conn: string, version: string, mod: string,
+ *   conn: string, version: string, mod: string, view?: string,
  * }} s
  * @param {{
  *   selectSpace: (id:string) => void, addSpace: () => void, openAgent: (id:string) => void,
  *   newAgent: () => void, quickSwitch: () => void,
  * }} act
+ * @param {import('../context.js').ViewContext} [ctx]  for shared components (approval buttons)
  */
-export function renderSidebar(root, s, act) {
+export function renderSidebar(root, s, act, ctx) {
   const counts = spaceCounts(s.entries);
   const space = s.spaces.find((x) => x.id === s.currentSpace) || null;
   const agents = sortAgents(s.entries.filter((e) => e.agent.spaceId === s.currentSpace));
+  const groups = allSpaces ? groupBySpace(s.entries, s.spaces) : [];
+  const shownCount = allSpaces ? s.entries.length : agents.length;
   const scrollTop = root.querySelector('.agent-list')?.scrollTop || 0;
 
   const spaceItems = s.spaces.map((sp) => {
@@ -34,22 +46,37 @@ export function renderSidebar(root, s, act) {
     h('span', { class: 'space-count', title: `${c.total} agent${c.total === 1 ? '' : 's'}` }, String(c.total))));
   });
 
-  const cards = agents.map((e) => {
+  /** @param {any} e */
+  const card = (e) => {
     const st = e.status ? e.status.state : 'stopped';
     const id = e.agent.id;
-    return h('li', null, h('button', {
+    // A div acting as a button, not a <button>: it holds real buttons (Allow / Deny), and buttons can't nest.
+    const el = h('div', {
       class: `agent-card st-${st}${s.visible.has(id) ? ' visible' : ''}${s.openTabs.has(id) ? ' open' : ''}`,
+      role: 'button', tabindex: '0',
       dataset: { agent: id, state: st },
       title: `${e.agent.name} · ${stateLabel(st)}`,
-      onclick: () => act.openAgent(id),
+      onclick: (/** @type {MouseEvent} */ ev) => { if (!(/** @type {HTMLElement} */ (ev.target)).closest('button')) act.openAgent(id); },
+      onkeydown: (/** @type {KeyboardEvent} */ ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); act.openAgent(id); } },
     },
+    // line 1: the name gets all the room it needs
     h('span', { class: 'card-row' },
       h('span', { class: `dot st-${st}`, 'aria-label': stateLabel(st) }),
       h('span', { class: 'agent-name' }, e.agent.name),
-      st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : null,
       h('span', { class: 'card-time' }, cardTime(e.status))),
-    h('span', { class: 'card-activity' }, describeActivity(e.status))));
-  });
+    // line 2: role tab, needs badge, activity
+    h('span', { class: 'card-meta' },
+      roleBadge(e.agent),
+      st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : null,
+      h('span', { class: 'card-activity', title: describeActivity(e.status) }, describeActivity(e.status))),
+    ctx ? approvalButtons(ctx, e, { compact: true }) : null);
+    if (ctx) attachAgentMenu(el, ctx, id);
+    return h('li', null, el);
+  };
+  const cards = agents.map(card);
+  const groupedItems = groups.map((g) => h('li', { class: 'agent-group', dataset: { space: g.space.id } },
+    h('div', { class: 'group-head' }, h('span', { class: 'group-name' }, g.space.name), h('span', { class: 'group-count' }, String(g.entries.length))),
+    h('ul', { class: 'agent-group-list' }, g.entries.map(card))));
 
   const connLabel = s.conn === 'open' ? 'Core connected' : s.conn === 'connecting' ? 'Connecting to core…' : 'Core offline';
 
@@ -69,12 +96,18 @@ export function renderSidebar(root, s, act) {
     h('section', { class: 'sb-section sb-agents' },
       h('div', { class: 'sb-head' },
         h('span', { class: 'sb-title' }, 'Agents'),
-        space ? h('span', { class: 'sb-sub' }, `${agents.length} in ${space.name}`) : null),
+        h('span', { class: 'sb-sub' }, allSpaces ? `${shownCount} in ${s.spaces.length} space${s.spaces.length === 1 ? '' : 's'}` : space ? `${agents.length} in ${space.name}` : '')),
+
+      h('div', { class: 'seg-mini', role: 'group', 'aria-label': 'Which agents to list' },
+          h('button', { class: allSpaces ? '' : 'on', type: 'button', id: 'agents-this-space', 'aria-pressed': String(!allSpaces), title: 'Agents of the selected space', onclick: () => { setAllSpaces(false); ctx ? ctx.render() : null; } }, 'This space'),
+          h('button', { class: allSpaces ? 'on' : '', type: 'button', id: 'agents-all-spaces', 'aria-pressed': String(allSpaces), title: 'Every agent, grouped by space, needs-you first', onclick: () => { setAllSpaces(true); ctx ? ctx.render() : null; } }, 'All spaces')),
       h('button', { class: 'new-agent', id: 'new-agent', onclick: act.newAgent, disabled: !s.spaces.length },
         icon('plus'), h('span', null, 'New agent'), kbd(s.mod, 'T')),
-      agents.length
+      allSpaces && groups.length
+        ? h('ul', { class: 'agent-list grouped' }, groupedItems)
+        : !allSpaces && agents.length
         ? h('ul', { class: 'agent-list' }, cards)
-        : h('div', { class: 'sb-hint' }, space ? 'No agents in this space yet.' : s.spaces.length ? 'Pick a space to see its agents.' : 'No spaces yet.'),
+        : h('div', { class: 'sb-hint' }, allSpaces ? 'No agents yet.' : space ? 'No agents in this space yet.' : s.spaces.length ? 'Pick a space to see its agents.' : 'No spaces yet.'),
     ),
 
     h('footer', { class: 'sb-foot' },

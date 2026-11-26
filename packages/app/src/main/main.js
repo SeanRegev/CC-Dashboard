@@ -15,6 +15,11 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, Notification, Menu, shell } = require('electron');
 const { homeDir } = require('../../../shared/protocol.js');
 const launcher = require('./core-launcher.js');
+// One module per M2 track, so parallel work doesn't edit this file.
+const attention = require('./attention.js');
+const dashboardWindow = require('./dashboard-window.js');
+const settings = require('./settings.js');
+const trash = require('./trash.js');
 
 if (process.env.CC_DISABLE_GPU === '1') app.disableHardwareAcceleration();
 // A custom CC_HOME (tests, side-by-side dev) gets its own Electron profile and single-instance lock.
@@ -27,8 +32,6 @@ const BG = '#141312';
 let win = null;
 /** @type {Promise<launcher.CoreInfo>|null} */
 let corePromise = null;
-/** Keep shown notifications referenced, or they can be garbage-collected before a click. */
-const liveNotifications = new Set();
 
 function ensureCore() {
   if (!corePromise) {
@@ -114,6 +117,7 @@ function focusWindow() {
 }
 
 ipcMain.handle('cc:getConnection', () => getConnection());
+ipcMain.handle('cc:getVersion', () => app.getVersion());
 
 ipcMain.handle('cc:pickFolder', async () => {
   const opts = /** @type {Electron.OpenDialogOptions} */ ({ title: 'Add a space', properties: ['openDirectory', 'createDirectory'] });
@@ -121,22 +125,11 @@ ipcMain.handle('cc:pickFolder', async () => {
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
 });
 
-ipcMain.handle('cc:notify', (_e, /** @type {any} */ msg) => {
-  if (!Notification.isSupported()) return false;
-  const title = String((msg && msg.title) || 'CC-Dashboard').slice(0, 200);
-  const body = String((msg && msg.body) || '').slice(0, 500);
-  const agentId = msg && typeof msg.agentId === 'string' ? msg.agentId : null;
-  const n = new Notification({ title, body, silent: false });
-  liveNotifications.add(n);
-  n.on('click', () => {
-    focusWindow();
-    if (agentId && win) win.webContents.send('cc:select-agent', agentId);
-    liveNotifications.delete(n);
-  });
-  n.on('close', () => liveNotifications.delete(n));
-  n.show();
-  return true;
-});
+const getWindow = () => win;
+attention.register({ ipcMain, Notification, getWindow, focusWindow });
+dashboardWindow.register({ ipcMain, shell, BrowserWindow, getWindow });
+settings.register({ ipcMain, app, getWindow, home: homeDir() });
+trash.register({ ipcMain, shell });
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

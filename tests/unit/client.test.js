@@ -19,7 +19,7 @@ test('call / on / errors', async (t) => {
   const client = new CoreClient({ getConnection: async () => ({ port: mock.port, token: mock.token }) });
   t.after(async () => { client.close(); await mock.close(); });
   const hello = await client.start();
-  assert.equal(hello.protocol, 1);
+  assert.equal(hello.protocol, require('../../packages/shared/protocol.js').PROTOCOL_VERSION);
   assert.equal(client.state, 'open');
   const spaces = await client.call('spaces.list');
   assert.ok(spaces.length >= 1);

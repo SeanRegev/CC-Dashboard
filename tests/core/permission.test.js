@@ -22,7 +22,7 @@ test('permission prompt -> needs_you with permission=true, message and a notify 
   assert.equal(s.tool, 'Bash');
   assert.ok(s.needsSince > 0);
   await waitFor(() => notes.length >= 1, { what: 'notify' });
-  assert.deepEqual(notes[0], { title: 'Perm needs you', body: 'Wants to use Bash: npm test', agentId: agent.id });
+  assert.deepEqual(notes[0], { title: 'Perm needs you', body: 'Wants to use Bash: npm test', agentId: agent.id, kind: 'needs_you' });
   // The fake's follow-up Notification does not notify a second time.
   await core.client.call('agents.list');
   assert.equal(notes.length, 1);

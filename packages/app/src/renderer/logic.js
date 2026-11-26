@@ -182,7 +182,14 @@ export function cardTime(status, now = Date.now()) {
  * @param {string} [platform]  process.platform; on macOS Cmd plays the role of Ctrl
  * @returns {null | {action:'newAgent'|'closeTab'|'nextTab'|'prevTab'|'gotoTab'|'toggleSplit'|'quickSwitch'|'copy'|'paste', index?:number}}
  */
+/** Ctrl+Shift+<key> → view. @type {Record<string, string>} */
+export const VIEW_KEYS = Object.freeze({
+  KeyT: 'terminals', KeyG: 'grid', KeyB: 'board', KeyA: 'inbox', KeyL: 'library', KeyD: 'dashboards',
+});
+
 export function shortcutFor(ev, platform = 'win32') {
+  // F2: rename / change role of the focused agent (no modifier; Claude Code doesn't use F2).
+  if ((ev.key === 'F2' || ev.code === 'F2') && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) return { action: 'editAgent' };
   const mod = platform === 'darwin' ? ev.metaKey : ev.ctrlKey;
   if (!mod || ev.altKey) return null;
   if (platform !== 'darwin' && ev.metaKey) return null;
@@ -193,8 +200,12 @@ export function shortcutFor(ev, platform = 'win32') {
     // Terminal-style copy/paste: Ctrl+Shift+C / Ctrl+Shift+V (plain Ctrl+C stays an interrupt).
     if (platform !== 'darwin' && (code === 'KeyC' || key === 'c')) return { action: 'copy' };
     if (platform !== 'darwin' && (code === 'KeyV' || key === 'v')) return { action: 'paste' };
+    // Views: Ctrl+Shift+<letter>. Plain Ctrl+B / Ctrl+L / Ctrl+I belong to the terminal and Claude Code.
+    const view = VIEW_KEYS[code] || VIEW_KEYS[`Key${key.toUpperCase()}`];
+    if (view) return { action: 'view', view };
     return null;
   }
+  if (code === 'Comma' || key === ',') return { action: 'settings' };
   const digit = /^Digit([1-9])$/.exec(code) || /^([1-9])$/.exec(key);
   if (digit) return { action: 'gotoTab', index: Number(digit[1]) - 1 };
   if (code === 'Backslash' || key === '\\') return { action: 'toggleSplit' };
@@ -324,4 +335,101 @@ export function closeInLayout(layout, id, tabsAfter) {
   if (panes.length === 2 && panes[1] === null) return { panes: [panes[0]], focused: 0 };
   if (panes.length === 2 && panes[0] === null) return { panes: [panes[1]], focused: 0 };
   return { panes, focused: Math.min(layout.focused, panes.length - 1) };
+}
+
+// ---------- Layouts (M2): grid order, board columns, space groups, snapshots ----------
+
+/**
+ * Grid order: the space's Main session first, then by state (needs you, working, starting, done,
+ * stopped, exited). Unlike sidebar order it never uses "last updated" as a tie-break, so tiles do not
+ * jump around while a working agent prints: ties fall back to creation time, then name.
+ * @template {{agent:{name:string, createdAt?:number, role?:{id?:string}}, status?:{state:string, needsSince?:number}}} T
+ * @param {T[]} entries
+ * @returns {T[]}
+ */
+export function gridOrder(entries) {
+  /** @param {T} e */
+  const main = (e) => (e.agent.role && e.agent.role.id === 'main' ? 0 : 1);
+  return [...entries].sort((a, b) => {
+    const m = main(a) - main(b);
+    if (m) return m;
+    const sa = a.status ? a.status.state : 'stopped';
+    const sb = b.status ? b.status.state : 'stopped';
+    const r = stateRank(sa) - stateRank(sb);
+    if (r) return r;
+    if (sa === 'needs_you') {
+      const na = (a.status && a.status.needsSince) || Infinity;
+      const nb = (b.status && b.status.needsSince) || Infinity;
+      if (na !== nb) return na - nb;
+    }
+    const ca = a.agent.createdAt || 0;
+    const cb = b.agent.createdAt || 0;
+    if (ca !== cb) return ca - cb;
+    return a.agent.name.localeCompare(b.agent.name);
+  });
+}
+
+/** Board columns, left to right. */
+export const BOARD_COLUMNS = Object.freeze([
+  Object.freeze({ id: 'needs', label: 'Needs you', states: Object.freeze(['needs_you']) }),
+  Object.freeze({ id: 'working', label: 'Working', states: Object.freeze(['working', 'starting']) }),
+  Object.freeze({ id: 'done', label: 'Done', states: Object.freeze(['idle']) }),
+  Object.freeze({ id: 'stopped', label: 'Stopped', states: Object.freeze(['stopped', 'exited']) }),
+]);
+
+/** Which board column a state belongs to. @param {string} state */
+export function boardColumnOf(state) {
+  const c = BOARD_COLUMNS.find((x) => x.states.includes(state));
+  return c ? c.id : 'stopped';
+}
+
+/**
+ * Entries split into the board columns, each in sidebar order (Main first within a column).
+ * @template {{agent:{name:string, createdAt?:number, role?:{id?:string}}, status?:{state:string, updatedAt?:number, needsSince?:number}}} T
+ * @param {T[]} entries
+ * @returns {Record<string, T[]>}
+ */
+export function boardColumns(entries) {
+  /** @type {Record<string, T[]>} */
+  const out = {};
+  for (const c of BOARD_COLUMNS) out[c.id] = [];
+  for (const e of sortAgents(/** @type {any[]} */ (entries))) out[boardColumnOf(e.status ? e.status.state : 'stopped')].push(e);
+  return out;
+}
+
+/**
+ * "All spaces" mode: entries grouped by space, spaces that need you first (most waiting first), then
+ * the spaces' own order. Spaces without agents are left out; agents of unknown spaces are grouped under their id.
+ * @template {{agent:{name:string, spaceId:string}, status?:{state:string}}} T
+ * @param {T[]} entries
+ * @param {Array<{id:string, name:string}>} spaces
+ * @returns {Array<{space:{id:string, name:string}, entries:T[]}>}
+ */
+export function groupBySpace(entries, spaces) {
+  const known = new Map(spaces.map((s) => [s.id, s]));
+  /** @type {Map<string, T[]>} */
+  const by = new Map();
+  for (const e of entries) {
+    const list = by.get(e.agent.spaceId) || [];
+    list.push(e);
+    by.set(e.agent.spaceId, list);
+  }
+  const ids = [...spaces.map((s) => s.id), ...[...by.keys()].filter((id) => !known.has(id))];
+  const groups = ids.filter((id) => by.has(id)).map((id, i) => {
+    const list = sortAgents(/** @type {any[]} */ (by.get(id)));
+    const needs = list.filter((e) => e.status && e.status.state === 'needs_you').length;
+    return { space: known.get(id) || { id, name: id }, entries: /** @type {T[]} */ (list), needs, i };
+  });
+  groups.sort((a, b) => (b.needs > 0) - (a.needs > 0) || b.needs - a.needs || a.i - b.i);
+  return groups.map(({ space, entries: list }) => ({ space, entries: list }));
+}
+
+/**
+ * Last `max` lines of a terminal buffer for a tile snapshot: trailing blank lines dropped.
+ * @param {string[]} lines @param {number} [max]
+ */
+export function tailLines(lines, max = 40) {
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end--;
+  return lines.slice(Math.max(0, end - max), end).map((l) => l.replace(/\s+$/, ''));
 }

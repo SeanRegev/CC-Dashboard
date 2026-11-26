@@ -149,7 +149,21 @@ test('shortcutFor: terminal keys pass through untouched', async () => {
   assert.equal(L.shortcutFor(kev('t', { ctrl: true, alt: true })), null); // AltGr combos
   assert.equal(L.shortcutFor(kev('Tab')), null);
   assert.equal(L.shortcutFor(kev('t', { meta: true })), null);
-  assert.equal(L.shortcutFor(kev('T', { ctrl: true, shift: true })), null);
+  assert.equal(L.shortcutFor(kev('Z', { ctrl: true, shift: true, code: 'KeyZ' })), null);
+  assert.equal(L.shortcutFor(kev('b', { ctrl: true, code: 'KeyB' })), null, 'Ctrl+B is Claude Code\'s');
+  assert.equal(L.shortcutFor(kev('i', { ctrl: true, code: 'KeyI' })), null, 'Ctrl+I is Tab in a terminal');
+});
+
+test('shortcutFor: views on Ctrl+Shift+<letter>, settings on Ctrl+comma, F2 edits the agent', async () => {
+  const L = await load();
+  const views = { T: 'terminals', G: 'grid', B: 'board', A: 'inbox', L: 'library', D: 'dashboards' };
+  for (const [k, view] of Object.entries(views)) {
+    assert.deepEqual(L.shortcutFor(kev(k, { ctrl: true, shift: true, code: `Key${k}` })), { action: 'view', view }, `Ctrl+Shift+${k}`);
+  }
+  assert.deepEqual(L.shortcutFor(kev('L', { meta: true, shift: true, code: 'KeyL' }), 'darwin'), { action: 'view', view: 'library' });
+  assert.deepEqual(L.shortcutFor(kev(',', { ctrl: true, code: 'Comma' })), { action: 'settings' });
+  assert.deepEqual(L.shortcutFor(kev('F2', { code: 'F2' })), { action: 'editAgent' });
+  assert.equal(L.shortcutFor(kev('F2', { ctrl: true, code: 'F2' })), null);
 });
 
 test('shortcutFor: copy/paste with Ctrl+Shift, Cmd on macOS', async () => {

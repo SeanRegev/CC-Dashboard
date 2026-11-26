@@ -130,6 +130,7 @@ async function main() {
     const t = setTimeout(() => process.exit(0), 1500);
     srv.close().then(() => { clearTimeout(t); process.exit(0); });
   };
+  core.on('shutdown-request', () => shutdown('core.shutdown'));
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
     try { process.on(/** @type {NodeJS.Signals} */ (sig), () => shutdown(sig)); } catch { /* not on this platform */ }
   }

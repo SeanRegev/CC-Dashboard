@@ -195,3 +195,35 @@ test('the app starts a missing core detached, and closing the window leaves it r
     if (pid) try { process.kill(pid); } catch { /* gone */ }
   }
 });
+
+test('role badges: 👑 Main on the space\'s first agent, other roles on the rest', async () => {
+  await app.click('.space[data-space="cc-dashboard"]');
+  // picking a space shows its agents as the Grid (M2); the sidebar cards stay where they are
+  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelectorAll('.tile').length >= 5`);
+  await app.waitFor(`document.querySelector('.agent-card[data-agent="refactor-auth"] .role-badge')`);
+  const roles = await app.evaluate(`Object.fromEntries([...document.querySelectorAll('.agent-card')].map((c) => [c.dataset.agent, c.querySelector('.role-badge').textContent]))`);
+  assert.equal(roles['refactor-auth'], '👑Main');
+  assert.equal(roles['fix-flaky-tests'], '🧪Tests');
+  assert.equal(Object.values(roles).filter((r) => r.includes('Main')).length, 1, 'one Main per space');
+});
+
+test('views: the switcher and Ctrl+Shift+<letter> change the main area; opening an agent returns to Terminals', async () => {
+  for (const [key, view] of [['L', 'library'], ['G', 'grid'], ['B', 'board'], ['A', 'inbox'], ['D', 'dashboards']]) {
+    await app.press(key, { ctrl: true, shift: true, code: `Key${key}` });
+    await app.waitFor(`window.__cc.snapshot().view === '${view}' && !document.getElementById('view-host').hidden && document.getElementById('workspace').hidden`);
+    await app.waitFor(`!document.querySelector('.view-${view}').hidden && document.querySelector('.view-switch button.on').dataset.view === '${view}'`);
+  }
+  await app.click('.view-switch button[data-view="library"]');
+  await app.waitFor(`window.__cc.snapshot().view === 'library'`);
+  await app.click('.agent-card[data-agent="docs-pass"]');
+  await app.waitFor(`window.__cc.snapshot().view === 'terminals' && !document.getElementById('workspace').hidden`);
+  await app.waitFor(`document.querySelector('.tab[data-agent="docs-pass"].active')`);
+});
+
+test('tabs keep a readable name next to the role emoji, even with the view switcher in the top bar', async () => {
+  await app.press('T', { ctrl: true, shift: true, code: 'KeyT' });
+  for (const id of ['docs-pass', 'refactor-auth', 'fix-flaky-tests']) await app.click(`.agent-card[data-agent="${id}"]`).catch(() => {});
+  await app.waitFor(`document.querySelectorAll('.tab .tab-name').length >= 2`);
+  const widths = await app.evaluate(`[...document.querySelectorAll('.tab .tab-name')].map((n) => n.getBoundingClientRect().width)`);
+  for (const w of widths) assert.ok(w >= 40, `tab name is ${w}px wide`);
+});

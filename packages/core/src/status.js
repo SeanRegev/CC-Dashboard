@@ -51,6 +51,7 @@ function setState(s, state, now) {
   }
   if (state !== 'needs_you') {
     delete s.permission;
+    delete s.prompt;
     delete s.needsSince;
     s.message = '';
   }
@@ -131,6 +132,7 @@ function applyEvent(status, rt, event, payload, now = Date.now()) {
       s.detail = detail;
       s.message = `Wants to use ${tool || 'a tool'}` + (detail ? `: ${detail}` : '');
       s.permission = true;
+      delete s.prompt; // a new request: the core reads the new prompt off the screen
       r.permAt = now;
       break;
     }
@@ -181,7 +183,7 @@ function withState(status, state, fields = {}, now = Date.now()) {
 function fieldsAfterState(fields) {
   /** @type {any} */
   const out = {};
-  for (const k of ['message', 'permission', 'needsSince']) if (k in fields) out[k] = fields[k];
+  for (const k of ['message', 'permission', 'prompt', 'needsSince']) if (k in fields) out[k] = fields[k];
   return out;
 }
 

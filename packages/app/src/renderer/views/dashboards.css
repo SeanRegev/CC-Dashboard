@@ -1,0 +1,43 @@
+/* Dashboards view. Owner: the Dashboards track (M2). */
+.view-dashboards { min-height: 0; }
+.dash-main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-top: 6px; overflow: auto; }
+.dash-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 4px 4px 0; }
+.dash-head .grow { flex: 1; }
+.dash-title { font-size: 17px; font-weight: 650; }
+.dash-title.small { font-size: 14px; }
+.dash-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.dash-loading { color: var(--muted); padding: 24px 6px; }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; padding: 2px 4px 12px; align-content: start; }
+.dash-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px;
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: var(--radius);
+}
+.dash-card:hover { border-color: var(--line); background: var(--card-hi); }
+.dash-card.missing { opacity: .8; }
+.dash-card-top { display: flex; gap: 10px; align-items: center; }
+.dash-kind {
+  width: 32px; height: 32px; flex: none; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(var(--accent-rgb), .25);
+}
+.dash-titles { min-width: 0; }
+.dash-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-meta { color: var(--faint); font-size: 11.5px; }
+.dash-source { color: var(--muted); }
+.dash-desc { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.dash-warn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.dash-warn code { font-family: var(--mono); font-size: 11.5px; padding: 1px 6px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line-soft); color: var(--text); user-select: text; }
+.dash-badge { font-size: 10.5px; font-weight: 650; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--faint); text-transform: lowercase; }
+.dash-badge.need { color: var(--needs); border-color: rgba(var(--needs-rgb), .4); background: rgba(var(--needs-rgb), .1); }
+.dash-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.dash-open:disabled { opacity: .45; cursor: not-allowed; }
+
+.dash-term { position: relative; flex: 1 1 auto; min-height: 240px; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); overflow: hidden; }
+.dash-status { font-size: 11.5px; color: var(--working); padding: 1px 8px; border-radius: 999px; background: rgba(134,207,134,.12); }
+.dash-status.done { color: var(--faint); background: var(--tint-1); }
+
+.dash-command {
+  margin: 0; padding: 10px 12px; font: 12.5px/1.45 var(--mono); color: var(--text);
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  white-space: pre-wrap; word-break: break-all; user-select: text; max-height: 40vh; overflow: auto;
+}

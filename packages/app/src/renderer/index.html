@@ -8,6 +8,15 @@
   <title>CC-Dashboard</title>
   <link rel="stylesheet" href="../../../../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="styles.css">
+  <!-- One stylesheet per M2 track, so parallel work never edits the same file. -->
+  <link rel="stylesheet" href="components/roles.css">
+  <link rel="stylesheet" href="components/approval.css">
+  <link rel="stylesheet" href="views/grid.css">
+  <link rel="stylesheet" href="views/board.css">
+  <link rel="stylesheet" href="views/inbox.css">
+  <link rel="stylesheet" href="views/library.css">
+  <link rel="stylesheet" href="views/dashboards.css">
+  <link rel="stylesheet" href="views/settings.css">
   <!-- UMD builds: they define globalThis.Terminal and globalThis.FitAddon -->
   <script src="../../../../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../../../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
@@ -26,6 +35,8 @@
     </header>
     <aside class="sidebar" id="sidebar" data-testid="sidebar" aria-label="Spaces and agents"></aside>
     <main class="workspace" id="workspace"></main>
+    <!-- Grid, Board, Inbox, Library, Dashboards: shown here instead of the terminal panes. -->
+    <section class="view-host" id="view-host" hidden></section>
   </div>
   <div id="overlay-root"></div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
