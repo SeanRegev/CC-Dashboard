@@ -768,9 +768,10 @@ class Activity {
    */
   onHook(agentId, event, payload) {
     const log = this.load(agentId);
+    const before = JSON.stringify(log.counts());
     const out = log.apply(event, payload, Date.now());
     if (out.entries.length) this.record(agentId, out.entries, out.urgent);
-    if (out.changed.size) this.subagentsChanged(agentId, out.changed, true);
+    if (out.changed.size) this.subagentsChanged(agentId, out.changed, out.urgent || before !== JSON.stringify(log.counts()));
     return { subagents: log.counts() };
   }
 
@@ -895,8 +896,12 @@ class Activity {
     this.subDirty.set(agentId, dirty);
     this.subUnsaved.add(agentId);
     if (urgent) {
+      // A start, end or prompt: on disk and on screen before the session's status changes.
       this.saveSubagents(agentId);
-    } else if (!this.flushTimer) {
+      this.sendSubagents();
+      return;
+    }
+    if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => { this.flushTimer = null; this.flushAll(); }, this.flushMs);
       this.flushTimer.unref();
     }
