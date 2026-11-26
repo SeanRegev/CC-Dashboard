@@ -74,6 +74,8 @@ function testEnv({ ccHome, env = {} }) {
     CC_HOME: ccHome,
     CC_CLAUDE: fakeClaudeCommand(),
     CC_DISABLE_GPU: '1',
+    // Never the real ~/.claude: the core lists outside sessions and reads transcripts from this folder.
+    CLAUDE_CONFIG_DIR: path.join(ccHome, 'claude-config'),
     ...env,
   };
 }
