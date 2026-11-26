@@ -28,6 +28,7 @@ Every agent is a real `claude` process in a real terminal; CC-Dashboard never re
 | Views | `packages/app/src/renderer/views` (sidebar, inbox, board, allow/deny) | Views (milestone 2) |
 | Orchestration | `packages/core/src/orchestrate` (tasks, routing, worktrees, verification) | Orchestration (milestone 3) |
 | Insight | `packages/core/src/insight` (usage, loadout, timeline) | Insight (milestone 3) |
+| Activity and outside sessions | `packages/core/src/activity.js`, `external.js`, `transcript.js` | Core (milestone 3, 0.3) |
 | Tests, CI, installers | `tests/`, `.github/workflows`, `electron-builder.yml` | QA & Release |
 
 ## Decisions
@@ -40,6 +41,41 @@ Every agent is a real `claude` process in a real terminal; CC-Dashboard never re
 - **Session identity:** each agent gets `--session-id <uuid>` at start, so it can be resumed with `--resume <uuid>`.
 - **Claude executable:** `CC_CLAUDE` env var if set (tests point it at `tests/fake-claude.js`), else `claude` found on PATH (`claude.exe` / `claude.cmd` on Windows).
 - **Worktrees** (milestone 3) live in `<repo>/.cc-dashboard/worktrees/<agent>` so Claude treats them as trusted, hidden via `.git/info/exclude`.
+- **The activity log costs no tokens.** It is built from hook events and, for outside sessions, from Claude's transcript files. No model is called to write or read it.
+
+## Activity, subagents and outside sessions (0.3)
+
+**`activity.js` (hooks → log).** `core.js` calls `activity.onHook()` before each hook is applied to the status. Each
+event becomes one `ActivityEntry` (kinds in `protocol.js`), with `subagentId` taken from the payload's `agent_id`
+(or `''` for the session itself). Detail and text are capped (300 and 500 characters); tool responses and file
+contents are never stored.
+
+- **Titles:** Agent and Task `PreToolUse` calls are queued with their description and type. On `SubagentStart` the
+  oldest queued call of the same type is paired with the subagent. If none is queued, the title comes from the
+  subagent's `meta.json`, then from `background_tasks` in a later `Stop`, then from the type's label.
+- **Persistence:** `<CC_HOME>/activity/<agentId>.jsonl`, appended in batches (≤ 250 ms) and flushed on shutdown.
+  Sequence numbers continue across restarts. Past 2 MB the file is rewritten atomically with its newest lines.
+  `agents.remove` deletes the files.
+- **Events:** `activity` (batched, ≤ 100 ms) and `subagent.updated` (coalesced).
+
+**`external.js` + `transcript.js` (outside sessions).** `external.js` watches `<claude config dir>/sessions/` for
+running-session files (polled every 2 s; `CC_EXTERNAL_POLL_MS` for tests). A session is kept only if its pid is
+alive and it is not one of our agents. `transcript.js` is pure parsing plus a small tailer: it reads
+`<config>/projects/*/<sessionId>.jsonl` from a byte offset, tolerates a half-written last line, and reads subagents
+from `subagents/agent-*.meta.json` and their own transcripts. Transcript entries stay in memory (the file is the
+record), the last 2000 per session. Live sessions are read every second while working and every 3 s otherwise.
+
+**`external.takeOver`.** The core re-reads the registry file and checks that the pid and session id still match. It
+confirms the process is Claude (`tasklist` on Windows, `/proc/<pid>/cmdline` on Linux, `ps` on macOS). It refuses
+`still_working` when the session is busy unless `force` is set, and `not_allowed` when the process cannot be
+confirmed or does not exit within 10 s. It ends the process (`taskkill /T /F` on Windows, SIGTERM then SIGKILL after
+3 s on other systems), then creates an agent with the same session id and starts it with `--resume` in the same
+folder. The activity log carries over.
+
+**Contract v3 (`packages/shared/protocol.js`).** Methods: `subagents.list`, `activity.list` (paged with `before`),
+`external.list`, `external.takeOver`. Events: `subagent.updated`, `activity`, `external.changed`. New fields:
+`AgentStatus.subagents` and `askedBy`. Error code `still_working`. Hook `SubagentStart`. Types: `Subagent`,
+`ActivityEntry`, `ExternalSession`.
 
 ## Milestones
 
