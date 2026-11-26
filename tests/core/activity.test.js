@@ -300,3 +300,24 @@ test('file names are safe on Windows; parseLines skips torn lines', () => {
   assert.equal(fileBase('a/b'), 'a%2fb');
   assert.deepEqual(parseLines('{"seq":1,"kind":"tool"}\n{"seq":2,"ki\n\n{"x":1}\n{"seq":3,"kind":"prompt"}').map((e) => e.seq), [1, 3]);
 });
+
+test('real interactive run: Claude\'s hidden helpers (SubagentStop, no agent_type, unknown id) are not subagents', () => {
+  const file = path.join(__dirname, '..', 'fixtures', 'hooks', 'subagent-hidden-helper.jsonl');
+  const events = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  const hidden = events.filter(({ ev, p }) => ev === 'SubagentStop' && !p.agent_type);
+  assert.equal(hidden.length, 2, 'the fixture has two hidden helper stops');
+  const log = new SessionLog('main', { readMeta: () => null });
+  let internal = 0;
+  const entries = [];
+  let now = 1000;
+  for (const { ev, p } of events) {
+    const out = log.apply(ev, p, (now += 1000));
+    if (out.internal) internal++;
+    entries.push(...out.entries);
+  }
+  assert.equal(internal, 2);
+  assert.deepEqual(log.list().map((s) => [s.title, s.state]), [['Read a.txt', 'done']]);
+  assert.deepEqual(log.counts(), { running: 0, total: 1 });
+  const ids = new Set(entries.map((e) => e.subagentId).filter(Boolean));
+  assert.deepEqual([...ids], [log.list()[0].id], 'no log lines for the hidden helpers');
+});

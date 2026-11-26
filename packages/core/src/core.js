@@ -229,6 +229,8 @@ class Core extends EventEmitter {
     /** @type {any} */
     let ctx = {};
     try { ctx = this.activity.onHook(id, event, payload) || {}; } catch { /* the log never breaks status */ }
+    // One of Claude's hidden helpers ended (see Activity): it changes nothing the user sees.
+    if (ctx.internal) return true;
     this.update(id, (s, r) => {
       const out = applyEvent(s, r, event, payload, Date.now(), ctx);
       out.rt.stuck = false;

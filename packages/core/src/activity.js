@@ -49,7 +49,7 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
  * @typedef {{toolUseId: string, title: string, type: string, background: boolean, at: number}} AgentCall
  *          one Agent / Task tool call, from its PreToolUse
  * @typedef {{src: 'call'|'meta'|'tasks'|'fallback', callId?: string, tries?: number}} TitleInfo
- * @typedef {{entries: ActivityEntry[], changed: Set<string>, urgent: boolean}} ApplyResult
+ * @typedef {{entries: ActivityEntry[], changed: Set<string>, urgent: boolean, internal?: boolean}} ApplyResult  internal: a hidden Claude helper (ignored)
  */
 
 // ---- pure helpers ---------------------------------------------------------------------------
@@ -203,6 +203,12 @@ class SessionLog {
     const sid = str(p.agent_id);
     const tool = str(p.tool_name);
     const detail = summarizeTool(tool, p.tool_input);
+    // Claude's own hidden helpers (e.g. after a turn) end with a SubagentStop that has no agent_type and an
+    // id never seen before: no SubagentStart, no tools, no meta.json. They are not the user's subagents.
+    if (event === 'SubagentStop' && sid && !str(p.agent_type) && !this.subagents.has(sid)) {
+      out.internal = true;
+      return out;
+    }
     /** @type {Subagent|null} */
     let sub = null;
     if (sid && event !== 'SubagentStart') {
@@ -772,7 +778,7 @@ class Activity {
     const out = log.apply(event, payload, Date.now());
     if (out.entries.length) this.record(agentId, out.entries, out.urgent);
     if (out.changed.size) this.subagentsChanged(agentId, out.changed, out.urgent || before !== JSON.stringify(log.counts()));
-    return { subagents: log.counts() };
+    return { subagents: log.counts(), ...(out.internal ? { internal: true } : {}) };
   }
 
   /**
