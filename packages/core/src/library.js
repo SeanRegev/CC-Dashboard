@@ -418,7 +418,11 @@ class Library {
     const plugin = lib.plugins.find((x) => x.id === id);
     if (action !== 'install') {
       if (!plugin) throw rpcError(ERRORS.NOT_FOUND, `no plugin ${id}`);
-      if (plugin.managed) throw rpcError(ERRORS.NOT_ALLOWED, `${plugin.name} is managed by your organization`);
+      // Turning a plugin on or off is the user's own setting, even for plugins an organization syncs or that
+      // are built in: let `claude` decide and pass on its answer. Removing or replacing them is not theirs.
+      if (plugin.managed && action !== 'enable' && action !== 'disable') {
+        throw rpcError(ERRORS.NOT_ALLOWED, `${plugin.name} is managed by your organization`);
+      }
     }
     const args = ['plugin', action, id, '--json'];
     if (plugin && SCOPE_ARG.has(plugin.scope)) args.push('--scope', plugin.scope);

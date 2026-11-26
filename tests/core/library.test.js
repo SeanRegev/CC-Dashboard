@@ -130,16 +130,26 @@ test('pluginAction: right command lines, rescans and broadcasts', async (t) => {
   await assert.rejects(w.lib.pluginAction({ id: 'new@my-market', action: 'update' }), { code: 'not_found' });
 });
 
-test('pluginAction: managed plugins, unknown ids and option injection are refused', async (t) => {
+test('pluginAction: removing or updating managed plugins, unknown ids and option injection are refused', async (t) => {
   const w = world();
   t.after(w.cleanup);
   await assert.rejects(w.lib.pluginAction({ id: 'org@synced', action: 'uninstall' }), { code: 'not_allowed' });
-  await assert.rejects(w.lib.pluginAction({ id: 'cc-plugin-telemetry@builtin', action: 'disable' }), { code: 'not_allowed' });
+  await assert.rejects(w.lib.pluginAction({ id: 'org@synced', action: 'update' }), { code: 'not_allowed' });
+  await assert.rejects(w.lib.pluginAction({ id: 'cc-plugin-telemetry@builtin', action: 'uninstall' }), { code: 'not_allowed' });
   await assert.rejects(w.lib.pluginAction({ id: 'ghost@x', action: 'disable' }), { code: 'not_found' });
   await assert.rejects(w.lib.pluginAction({ id: '--help', action: 'install' }), { code: 'bad_request' });
   await assert.rejects(w.lib.pluginAction({ id: 'a@b', action: 'explode' }), { code: 'bad_request' });
   await assert.rejects(w.lib.pluginAction({ id: 'a@b', action: 'install', acceptCommand: 'nope' }), { code: 'bad_request' });
-  assert.equal(w.calls().filter((c) => c.argv[1] === 'uninstall' || c.argv[1] === 'disable').length, 0);
+  assert.equal(w.calls().filter((c) => ['uninstall', 'update', 'disable'].includes(c.argv[1])).length, 0);
+});
+
+test('pluginAction: managed and built-in plugins can still be turned on and off (claude decides)', async (t) => {
+  const w = world();
+  t.after(w.cleanup);
+  await w.lib.pluginAction({ id: 'cc-plugin-telemetry@builtin', action: 'disable' });
+  await w.lib.pluginAction({ id: 'org@synced', action: 'disable' });
+  const calls = w.calls().filter((c) => c.argv[1] === 'disable').map((c) => c.argv[2]);
+  assert.deepEqual(calls, ['cc-plugin-telemetry@builtin', 'org@synced']);
 });
 
 test('install: a command-source plugin asks for confirmation, then installs with --accept-command', async (t) => {

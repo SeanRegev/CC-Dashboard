@@ -341,7 +341,7 @@ export function createLibraryView(ctx) {
     mount(mainEl, h('div', { class: 'plugin-grid' }, list.map((/** @type {any} */ p) => {
       const sw = h('button', {
         class: `switch${p.enabled ? ' on' : ''}`, role: 'switch', 'aria-checked': String(p.enabled), 'aria-label': `${p.enabled ? 'Turn off' : 'Turn on'} ${p.name}`,
-        title: p.managed ? 'Managed by your organization' : p.enabled ? 'Turn off' : 'Turn on', disabled: p.managed || busy.has(p.id),
+        title: p.enabled ? 'Turn off' : 'Turn on', disabled: busy.has(p.id),
         onclick: (/** @type {Event} */ e) => { e.stopPropagation(); pluginAction(p.id, p.enabled ? 'disable' : 'enable', { quiet: true }); },
       }, h('span', { class: 'knob' }));
       return h('div', { class: `plugin-card${selPlugin === p.id ? ' sel' : ''}${p.enabled ? '' : ' off'}${busy.has(p.id) ? ' busy' : ''}`, tabindex: '0', role: 'button', dataset: { plugin: p.id },
@@ -420,7 +420,7 @@ export function createLibraryView(ctx) {
       h('div', { class: 'detail-head' }, logo(p, 'big'), h('div', { class: 'grow' }, h('div', { class: 'detail-title' }, p.name), h('div', { class: 'hint' }, `${p.version === 'unknown' ? 'built in' : `v${p.version}`} · ${p.scope}${p.marketplace ? ` · ${p.marketplace}` : ''}`)),
         h('button', { class: 'icon-btn small', title: 'Close', onclick: () => { selPlugin = null; render(); } }, icon('close'))),
       h('div', { class: 'plugin-badges' }, p.updateAvailable ? badge('Update available', 'update') : null, p.managed ? badge('Managed', 'managed') : null, !p.enabled ? badge('Disabled', 'off') : null),
-      p.managed ? h('div', { class: 'lib-note' }, 'Managed by your organization. You can read it here but not change it.') : null,
+      p.managed ? h('div', { class: 'lib-note' }, 'Managed by your organization or built in: you can turn it on or off, but not update or remove it here.') : null,
       h('p', { class: 'detail-desc' }, p.description || 'No description.'),
       h('dl', { class: 'detail-facts' },
         h('dt', null, 'Author'), h('dd', null, p.author || '—'),

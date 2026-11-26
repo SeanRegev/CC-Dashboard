@@ -96,7 +96,7 @@ function libraryMethods(ctx) {
         return { ok: true, message: `Installed ${c.name}` };
       }
       const pl = plugin(p.id);
-      if (pl.managed) throw ctx.fail(ctx.ERRORS.NOT_ALLOWED, `${pl.name} is managed by your organization`);
+      if (pl.managed && p.action !== 'enable' && p.action !== 'disable') throw ctx.fail(ctx.ERRORS.NOT_ALLOWED, `${pl.name} is managed by your organization`);
       if (p.action === 'enable' || p.action === 'disable') pl.enabled = p.action === 'enable';
       else if (p.action === 'update') { pl.updateAvailable = false; pl.version = '1.3.0'; }
       else if (p.action === 'uninstall') {

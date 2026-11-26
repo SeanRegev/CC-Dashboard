@@ -33,7 +33,7 @@ test.after(async () => {
   if (mock) await mock.close();
 });
 
-test('plugins: cards with badges, cost and counts; managed plugins can not be switched', async () => {
+test('plugins: cards with badges, cost and counts; managed plugins can still be switched on and off', async () => {
   const text = await app.evaluate(`document.querySelector('.plugin-card[data-plugin="engineering@claude-plugins-official"]').textContent`);
   assert.match(text, /engineering/);
   assert.match(text, /Update available/);
@@ -42,7 +42,7 @@ test('plugins: cards with badges, cost and counts; managed plugins can not be sw
   assert.match(text, /2 MCP/);
   const managed = await app.evaluate(`(() => { const c = document.querySelector('.plugin-card[data-plugin="security-guidance@synced"]'); return { text: c.textContent, disabled: c.querySelector('.switch').disabled }; })()`);
   assert.match(managed.text, /Managed/);
-  assert.equal(managed.disabled, true);
+  assert.equal(managed.disabled, false);
   assert.match(await app.evaluate(`document.querySelector('.plugin-card[data-plugin="figma@claude-plugins-official"]').textContent`), /Disabled/);
 });
 
