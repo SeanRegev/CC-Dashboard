@@ -751,6 +751,8 @@ setInterval(scheduleRender, 20000);
   liveTerminals: () => [...S.views.keys()],
   /** How many times renderChrome ran (to catch render loops). */
   renders: () => renderCount,
+  /** v3: whose activity the drawer shows (Outside UI tests). */
+  activityFor: () => (S.activityFor ? { ...S.activityFor } : null),
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 

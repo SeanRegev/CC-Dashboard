@@ -5,6 +5,7 @@ import { sortAgents, spaceCounts, describeActivity, cardTime, stateLabel, groupB
 import { roleBadge } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
+import { groupExternal, outsideBlock, otherFoldersBlock } from '../components/external.js';
 
 const ALL_KEY = 'cc.sidebar.allSpaces';
 /** "All spaces" mode of the Agents list: a per-viewer convenience, kept in localStorage. */
@@ -74,9 +75,19 @@ export function renderSidebar(root, s, act, ctx) {
     return h('li', null, el);
   };
   const cards = agents.map(card);
+  // M3 Outside UI: outside sessions per space ("Outside the app (N)") and the ones in no space ("Other folders")
+  const outside = ctx ? groupExternal(ctx.external(), s.spaces) : { bySpace: new Map(), other: [] };
+  const outsideLi = (/** @type {string} */ sid) => { const b = ctx && outsideBlock(ctx, outside.bySpace.get(sid) || [], sid); return b ? h('li', { class: 'ext-li' }, b) : null; };
+  const extOnly = allSpaces ? s.spaces.filter((sp) => outside.bySpace.has(sp.id) && !groups.some((g) => g.space.id === sp.id)) : [];
+  const extGroups = extOnly.map((sp) => h('li', { class: 'agent-group', dataset: { space: sp.id } },
+    h('div', { class: 'group-head' }, h('span', { class: 'group-name' }, sp.name)), h('ul', { class: 'agent-group-list' }, outsideLi(sp.id))));
+  const curOutside = !allSpaces && s.currentSpace ? outsideLi(s.currentSpace) : null;
+  const otherFolders = ctx ? otherFoldersBlock(ctx, outside.other) : null;
+
   const groupedItems = groups.map((g) => h('li', { class: 'agent-group', dataset: { space: g.space.id } },
     h('div', { class: 'group-head' }, h('span', { class: 'group-name' }, g.space.name), h('span', { class: 'group-count' }, String(g.entries.length))),
-    h('ul', { class: 'agent-group-list' }, g.entries.map(card))));
+    h('ul', { class: 'agent-group-list' }, g.entries.map(card), outsideLi(g.space.id))));
+
 
   const connLabel = s.conn === 'open' ? 'Core connected' : s.conn === 'connecting' ? 'Connecting to core…' : 'Core offline';
 
@@ -103,12 +114,14 @@ export function renderSidebar(root, s, act, ctx) {
           h('button', { class: allSpaces ? 'on' : '', type: 'button', id: 'agents-all-spaces', 'aria-pressed': String(allSpaces), title: 'Every agent, grouped by space, needs-you first', onclick: () => { setAllSpaces(true); ctx ? ctx.render() : null; } }, 'All spaces')),
       h('button', { class: 'new-agent', id: 'new-agent', onclick: act.newAgent, disabled: !s.spaces.length },
         icon('plus'), h('span', null, 'New agent'), kbd(s.mod, 'T')),
-      allSpaces && groups.length
-        ? h('ul', { class: 'agent-list grouped' }, groupedItems)
-        : !allSpaces && agents.length
-        ? h('ul', { class: 'agent-list' }, cards)
+      allSpaces && (groups.length || extGroups.length)
+        ? h('ul', { class: 'agent-list grouped' }, groupedItems, extGroups)
+        : !allSpaces && (agents.length || curOutside)
+        ? h('ul', { class: 'agent-list' }, cards, curOutside)
         : h('div', { class: 'sb-hint' }, allSpaces ? 'No agents yet.' : space ? 'No agents in this space yet.' : s.spaces.length ? 'Pick a space to see its agents.' : 'No spaces yet.'),
     ),
+
+    otherFolders,
 
     h('footer', { class: 'sb-foot' },
       h('span', { class: `conn-dot conn-${s.conn}` }),

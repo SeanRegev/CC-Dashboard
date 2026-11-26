@@ -15,6 +15,7 @@ import { gridOrder, describeActivity, cardTime, stateLabel, contextPercent, gaug
 import { roleBadge, roleOf } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
+import { createExternalTiles, externalOfSpace } from '../components/external.js';
 
 const SNAPSHOT_LINES = 60;
 
@@ -62,6 +63,7 @@ export function createGridView(ctx) {
   const newBtn = h('button', { class: 'btn small', type: 'button', id: 'grid-new', onclick: () => ctx.newAgent(ctx.state().currentSpace || undefined) }, icon('plus'), 'New agent');
   const bar = h('div', { class: 'grid-bar' }, title, count, h('span', { class: 'grow' }), backBtn, newBtn);
   const tilesEl = h('div', { class: 'grid-tiles' });
+  const outsideTiles = createExternalTiles(ctx); // M3 Outside UI: view-only tiles after the agents
   const scroll = h('div', { class: 'grid-scroll', tabindex: '-1' }, tilesEl);
   const empty = h('div', { class: 'grid-empty', hidden: true },
     h('div', { class: 'empty-icon' }, icon('terminal')),
@@ -305,9 +307,12 @@ export function createGridView(ctx) {
       });
       if (keep && keep.isConnected && document.activeElement !== keep) keep.focus({ preventScroll: true });
     }
+    // M3 Outside UI: this space's outside sessions are tiles too (they count for the 4-visible / scroll rules)
+    const outside = S.currentSpace ? externalOfSpace(S.external, S.spaces, S.currentSpace) : [];
+    outsideTiles.sync(tilesEl, outside);
     title.textContent = space ? space.name : 'No space';
-    count.textContent = ids.length ? `${ids.length} agent${ids.length === 1 ? '' : 's'}` : '';
-    const none = !ids.length;
+    count.textContent = (ids.length ? `${ids.length} agent${ids.length === 1 ? '' : 's'}` : '') + (outside.length ? `${ids.length ? ' · ' : ''}${outside.length} outside` : '');
+    const none = !ids.length && !outside.length;
     empty.hidden = !none;
     scroll.hidden = none;
     el.classList.toggle('is-empty', none);

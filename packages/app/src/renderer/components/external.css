@@ -1,0 +1,83 @@
+/* Outside sessions (view only): badge, grid tile, sidebar block, take-over dialog. Owner: Outside UI (M3). Theme tokens only. */
+.ext-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; height: 18px; padding: 0 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  color: var(--text); background: rgba(var(--starting-rgb), .13); border: 1px solid rgba(var(--starting-rgb), .4);
+}
+.ext-eye { font-size: 11px; }
+.ext-where { color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ext-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ext-takeover { border-color: rgba(var(--starting-rgb), .5); }
+.btn.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger-solid:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* grid tile */
+.ext-tile { border-style: dashed; }
+.ext-tile.st-working { border-color: rgba(var(--working-rgb), .35); }
+.ext-tile.st-needs_you { border-color: rgba(var(--needs-rgb), .45); }
+.ext-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; overflow: hidden; }
+.ext-now { font: 12.5px/1.3 var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.ext-now.st-idle, .ext-now.st-unknown { color: var(--muted); }
+.ext-now.st-needs_you { color: var(--needs-text); }
+.ext-prompt { flex: none; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-prompt:empty { display: none; }
+.ext-feed { flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; list-style: none; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.ext-line { display: flex; gap: 7px; min-width: 0; font: 12px/1.35 var(--mono); color: var(--muted); }
+.ext-line-icon { flex: none; width: 1.2em; text-align: center; color: var(--faint); }
+.ext-line-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-line.k-prompt { color: var(--text); }
+.ext-line.sub { padding-left: 10px; }
+.ext-line.err, .ext-line.err .ext-line-icon { color: var(--danger-text); }
+.ext-line.empty { color: var(--faint); font-family: var(--ui); }
+.ext-note { flex: none; font-size: 11.5px; color: var(--faint); }
+.ext-foot { height: auto; min-height: 30px; padding: 3px 8px 3px 10px; }
+.ext-foot-actions { flex: none; }
+.ext-subs { color: var(--muted); }
+
+/* sidebar */
+.ext-block { margin-top: 6px; min-width: 0; }
+.ext-block-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 4px; border-radius: 6px; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); text-align: left; }
+.ext-block-head:hover { color: var(--text); background: var(--tint-1); }
+.ext-chev { width: 10px; flex: none; }
+.ext-block-list { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.ext-block-list > li { min-width: 0; }
+.sb-other { flex: none; max-height: 34%; overflow-y: auto; border-top: 1px solid var(--line-soft); margin-top: 0; }
+/* Own classes (not .agent-card / .board-card) so counts of agent cards stay agent cards; same look. */
+.ext-card {
+  width: 100%; min-width: 0; text-align: left; box-sizing: border-box; cursor: pointer; position: relative;
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 9px 10px 9px 11px;
+  border-radius: 10px; background: transparent; border: 1px dashed var(--line-soft);
+}
+.ext-card:hover { background: var(--tint-1); border-color: var(--line); }
+.ext-card:focus-visible, .ext-board-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ext-card.st-needs_you { background: rgba(var(--needs-rgb), .06); border-color: rgba(var(--needs-rgb), .3); }
+.ext-card .card-row { gap: 8px; }
+.ext-card .card-activity { padding-left: 16px; }
+.ext-card.st-needs_you .card-activity { color: var(--needs-text); }
+.ext-card .card-meta { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; flex-wrap: wrap; }
+.ext-card .card-activity.ext-path { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.ext-card .ext-actions { padding-left: 12px; margin-top: 2px; }
+.agent-group .ext-block { margin-top: 4px; }
+
+/* board and inbox */
+.ext-board-card {
+  display: flex; flex-direction: column; gap: 5px; flex: none; min-width: 0; padding: 9px 10px; cursor: pointer;
+  background: var(--card); border: 1px dashed var(--line); border-radius: 10px;
+}
+.ext-board-card:hover { background: var(--card-hi); }
+.ext-board-card.st-needs_you { background: rgba(var(--needs-rgb), .07); border-color: rgba(var(--needs-rgb), .35); }
+.ext-board-card.st-needs_you .bc-activity { color: var(--needs-text); }
+.ext-board-card .ext-actions { margin-top: 2px; }
+.ext-inbox-row .inbox-actions { display: flex; align-items: center; }
+
+/* dialog */
+.eo-modal { width: min(540px, calc(100vw - 48px)); }
+.eo-icon { font-size: 16px; background: rgba(var(--starting-rgb), .13); border-color: rgba(var(--starting-rgb), .4); color: var(--text); }
+.eo-lead { margin: 0; color: var(--text); line-height: 1.5; }
+.eo-warn { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: rgba(var(--needs-rgb), .1); border: 1px solid rgba(var(--needs-rgb), .4); color: var(--text); }
+.eo-warn-mark { color: var(--needs-ink); }
+.eo-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12.5px; }
+.eo-facts dt { color: var(--faint); }
+.eo-facts dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eo-path { font-family: var(--mono); font-size: 12px; }
+.eo-body .hint { margin: 0; }

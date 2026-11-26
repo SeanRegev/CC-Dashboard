@@ -8,6 +8,7 @@ import { boardColumns, BOARD_COLUMNS, describeActivity, cardTime, contextPercent
 import { roleBadge } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
+import { externalOfSpace, externalBoardColumn, externalBoardCard } from '../components/external.js';
 
 const FILTER_KEY = 'cc.board.filter';
 /** @returns {'all'|'space'} */
@@ -52,16 +53,21 @@ export function createBoardView(ctx) {
     const space = S.spaces.find((/** @type {any} */ s) => s.id === S.currentSpace);
     const entries = [...S.entries.values()].filter((e) => filter === 'all' || e.agent.spaceId === S.currentSpace);
     const by = boardColumns(entries);
+    // M3 Outside UI: outside sessions as view-only cards in their state's column
+    const outside = externalOfSpace(S.external, S.spaces, filter === 'all' ? null : S.currentSpace);
+    /** @type {Record<string, any[]>} */
+    const outBy = { needs: [], working: [], done: [], stopped: [] };
+    for (const x of outside) outBy[externalBoardColumn(x.state)].push(x);
     mount(bar,
       h('span', { class: 'board-title' }, 'Board'),
       h('div', { class: 'seg-mini board-filter', role: 'group', 'aria-label': 'Which agents' },
         h('button', { class: filter === 'all' ? 'on' : '', type: 'button', id: 'board-all', 'aria-pressed': String(filter === 'all'), onclick: () => setFilter('all') }, 'All spaces'),
         h('button', { class: filter === 'space' ? 'on' : '', type: 'button', id: 'board-space', 'aria-pressed': String(filter === 'space'), title: space ? space.name : '', onclick: () => setFilter('space') }, space ? space.name : 'Current space')),
-      h('span', { class: 'board-count' }, `${entries.length} agent${entries.length === 1 ? '' : 's'}`));
+      h('span', { class: 'board-count' }, `${entries.length} agent${entries.length === 1 ? '' : 's'}${outside.length ? ` · ${outside.length} outside` : ''}`));
     mount(cols, ...BOARD_COLUMNS.map((c) => h('section', { class: `board-col col-${c.id}`, dataset: { col: c.id } },
-      h('header', { class: 'board-col-head' }, h('span', { class: 'bch-label' }, c.label), h('span', { class: 'bch-count' }, String(by[c.id].length))),
+      h('header', { class: 'board-col-head' }, h('span', { class: 'bch-label' }, c.label), h('span', { class: 'bch-count' }, String(by[c.id].length + outBy[c.id].length))),
       h('div', { class: 'board-col-body' },
-        by[c.id].length ? by[c.id].map(card) : h('div', { class: 'board-col-empty' }, 'Nothing here')))));
+        by[c.id].length || outBy[c.id].length ? [by[c.id].map(card), outBy[c.id].map((x) => externalBoardCard(ctx, x))] : h('div', { class: 'board-col-empty' }, 'Nothing here')))));
   }
 
   return { el, update, show: update };
