@@ -169,7 +169,7 @@ function confirmIdentity(reg, info, platform = process.platform) {
 /** @param {string} file @param {string[]} args @returns {Promise<string>} stdout ('' on failure) */
 function run(file, args) {
   return new Promise((resolve) => {
-    execFile(file, args, { timeout: 8000, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+    execFile(file, args, { timeout: 5000, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(err ? '' : String(stdout)));
   });
 }
 
