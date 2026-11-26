@@ -28,13 +28,19 @@ export class TerminalView {
    *   platform: string,
    *   onFocus?: () => void,
    *   onError?: (msg: string) => void,
+   *   backend?: { input: string, resize: string, attach: () => Promise<{replay?: string}>, detach: () => void },
    * }} o
+   *   backend: drive something other than an agent (a terminal dashboard): the RPC methods for keys and size,
+   *   and how to attach / detach. Omitted = an agent, exactly as before.
    */
   constructor(o) {
     this.id = o.id;
     this.client = o.client;
     this.platform = o.platform;
     this.onError = o.onError || (() => {});
+    this.backend = o.backend || null;
+    this.inputMethod = (o.backend && o.backend.input) || 'agents.input';
+    this.resizeMethod = (o.backend && o.backend.resize) || 'agents.resize';
     this.el = document.createElement('div');
     this.el.className = 'term-slot';
     this.el.dataset.agent = o.id;
@@ -65,8 +71,8 @@ export class TerminalView {
 
     // App shortcuts are not sent to the terminal; everything else (Ctrl+C included) is.
     this.term.attachCustomKeyEventHandler((/** @type {KeyboardEvent} */ ev) => !shortcutFor(ev, this.platform));
-    this.term.onData((/** @type {string} */ data) => this.client.send('agents.input', { id: this.id, data }));
-    this.term.onBinary((/** @type {string} */ data) => this.client.send('agents.input', { id: this.id, data }));
+    this.term.onData((/** @type {string} */ data) => this.client.send(this.inputMethod, { id: this.id, data }));
+    this.term.onBinary((/** @type {string} */ data) => this.client.send(this.inputMethod, { id: this.id, data }));
     this.term.onResize((/** @type {{cols:number, rows:number}} */ s) => this.sendSize(s.cols, s.rows));
     this.term.textarea && this.term.textarea.addEventListener('focus', () => o.onFocus && o.onFocus());
   }
@@ -74,7 +80,7 @@ export class TerminalView {
   /** Attach to the agent and write its scrollback. */
   async attach() {
     try {
-      const r = await this.client.attach(this.id);
+      const r = this.backend ? await this.backend.attach() : await this.client.attach(this.id);
       if (this.disposed) return;
       this.term.write((r && r.replay) || '');
       for (const d of this.early) this.term.write(d);
@@ -119,7 +125,7 @@ export class TerminalView {
     const key = `${cols}x${rows}`;
     if (key === this.lastSize || !this.ready) return;
     this.lastSize = key;
-    this.client.send('agents.resize', { id: this.id, cols, rows });
+    this.client.send(this.resizeMethod, { id: this.id, cols, rows });
   }
 
   focus() { if (!this.disposed) this.term.focus(); }
@@ -133,7 +139,7 @@ export class TerminalView {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.client.detach(this.id);
+    if (this.backend) this.backend.detach(); else this.client.detach(this.id);
     this.term.dispose();
     this.el.remove();
   }
