@@ -617,6 +617,18 @@ function openNextNeedy() {
 }
 
 // ---------- keyboard ----------
+/**
+ * The agent F2 edits: the one under keyboard focus (a Grid tile, Board card or sidebar card), else the
+ * focused pane's agent while Terminals is shown. Never a hidden pane's agent behind another view.
+ * @returns {string|null}
+ */
+function editTarget() {
+  const at = document.activeElement && document.activeElement.closest('.tile[data-agent], .board-card[data-agent], .agent-card[data-agent], .inbox-row[data-agent], .term-slot[data-agent]');
+  const id = at && /** @type {HTMLElement} */ (at).dataset.agent;
+  if (id && S.entries.has(id)) return id;
+  return S.view === 'terminals' ? focusedId() : null;
+}
+
 window.addEventListener('keydown', (ev) => {
   const sc = shortcutFor(ev, platform);
   if (!sc) return;
@@ -637,7 +649,7 @@ window.addEventListener('keydown', (ev) => {
   ev.stopPropagation();
   if (sc.action === 'view' && sc.view) { setView(/** @type {any} */ (sc.view)); return; }
   if (sc.action === 'settings') { openSettingsDialog(ctx); return; }
-  if (sc.action === 'editAgent') { const id = focusedId(); if (id) openAgentEditDialog(ctx, id); return; }
+  if (sc.action === 'editAgent') { const id = editTarget(); if (id) openAgentEditDialog(ctx, id); return; }
   const cur = focusedId();
   const idx = cur ? S.tabs.indexOf(cur) : -1;
   switch (sc.action) {
