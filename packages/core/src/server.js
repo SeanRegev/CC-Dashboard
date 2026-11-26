@@ -23,7 +23,11 @@ function tokenOk(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-/** RPC method name -> Core method. */
+/**
+ * RPC method name -> Core method name, or a function (core, params) => result.
+ * null: handled per client below (subscriptions).
+ * @type {Record<string, string|null|((core: any, params: any) => any)>}
+ */
 const HANDLERS = {
   hello: 'hello',
   'spaces.list': 'spacesList',
@@ -41,6 +45,26 @@ const HANDLERS = {
   'agents.detach': null, // handled per client
   'agents.approve': 'agentsApprove',
   'agents.deny': 'agentsDeny',
+  'agents.update': 'agentsUpdate',
+  'agents.restart': 'agentsRestart',
+  'core.shutdown': 'coreShutdown',
+  'library.list': (core, p) => core.library.list(p),
+  'library.available': (core, p) => core.library.available(p),
+  'library.pluginAction': (core, p) => core.library.pluginAction(p),
+  'library.configure': (core, p) => core.library.configure(p),
+  'library.marketplace': (core, p) => core.library.marketplace(p),
+  'library.skillRead': (core, p) => core.library.skillRead(p),
+  'library.skillWrite': (core, p) => core.library.skillWrite(p),
+  'dashboards.list': (core, p) => core.dashboards.list(p),
+  'dashboards.add': (core, p) => core.dashboards.add(p),
+  'dashboards.remove': (core, p) => core.dashboards.remove(p),
+  'dashboards.trust': (core, p) => core.dashboards.trust(p),
+  'dashboards.start': (core, p) => core.dashboards.start(p),
+  'dashboards.stop': (core, p) => core.dashboards.stop(p),
+  'dashboards.attach': null, // handled per client
+  'dashboards.detach': null, // handled per client
+  'dashboards.input': (core, p) => core.dashboards.input(p),
+  'dashboards.resize': (core, p) => core.dashboards.resize(p),
 };
 for (const m of METHODS) if (!(m in HANDLERS)) throw new Error(`server is missing protocol method ${m}`);
 
@@ -129,16 +153,32 @@ function createServer(core, opts) {
           core.getAgent(params.id);
           client.attached.delete(params.id);
           result = true;
+        } else if (method === 'dashboards.attach') {
+          result = core.dashboards.attach(params);
+          client.attached.add(`dash:${params.id}`); // same tick as the replay, like agents.attach
+        } else if (method === 'dashboards.detach') {
+          client.attached.delete(`dash:${params.id}`);
+          result = true;
         } else {
-          result = core[HANDLERS[method]](params);
+          const h = HANDLERS[method];
+          result = typeof h === 'function' ? h(core, params) : core[/** @type {string} */ (h)](params);
           // Subscribe in the same tick as taking the replay, so no output is lost or doubled.
           if (method === 'agents.attach') client.attached.add(params.id);
         }
+        // Async handlers (library, dashboards) answer when they are done.
+        if (result && typeof result.then === 'function') {
+          return result.then((r) => send(ws, { id, result: r }), (e) => sendError(id, e));
+        }
         return send(ws, { id, result });
       } catch (e) {
+        return sendError(id, e);
+      }
+
+      /** @param {any} reqId @param {any} e */
+      function sendError(reqId, e) {
         const err = /** @type {any} */ (e);
         if (!(err instanceof RpcError)) log(`${method} failed: ${err && err.stack}`);
-        return send(ws, { id, error: { code: err instanceof RpcError ? err.code : ERRORS.INTERNAL, message: String(err && err.message || err) } });
+        return send(ws, { id: reqId, error: { code: err instanceof RpcError ? err.code : ERRORS.INTERNAL, message: String(err && err.message || err) } });
       }
     });
   }
@@ -152,6 +192,14 @@ function createServer(core, opts) {
     if (event === 'agent.removed') for (const c of clients) c.attached.delete(data.id);
     const text = JSON.stringify({ event, data });
     for (const c of clients) if (c.ws.readyState === c.ws.OPEN) c.ws.send(text);
+  });
+  core.on('dashboard-output', (id, data) => {
+    let text = '';
+    for (const c of clients) {
+      if (!c.attached.has(`dash:${id}`) || c.ws.readyState !== c.ws.OPEN) continue;
+      text = text || JSON.stringify({ event: 'dashboard.output', data: { id, data } });
+      c.ws.send(text);
+    }
   });
   core.on('output', (id, data) => {
     let text = '';

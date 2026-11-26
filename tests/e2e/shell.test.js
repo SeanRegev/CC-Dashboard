@@ -195,3 +195,25 @@ test('the app starts a missing core detached, and closing the window leaves it r
     if (pid) try { process.kill(pid); } catch { /* gone */ }
   }
 });
+
+test('role badges: 👑 Main on the space\'s first agent, other roles on the rest', async () => {
+  await app.click('.space[data-space="cc-dashboard"]');
+  await app.waitFor(`document.querySelector('.agent-card[data-agent="refactor-auth"] .role-badge')`);
+  const roles = await app.evaluate(`Object.fromEntries([...document.querySelectorAll('.agent-card')].map((c) => [c.dataset.agent, c.querySelector('.role-badge').textContent]))`);
+  assert.equal(roles['refactor-auth'], '👑Main');
+  assert.equal(roles['fix-flaky-tests'], '🧪Tests');
+  assert.equal(Object.values(roles).filter((r) => r.includes('Main')).length, 1, 'one Main per space');
+});
+
+test('views: the switcher and Ctrl+Shift+<letter> change the main area; opening an agent returns to Terminals', async () => {
+  for (const [key, view] of [['L', 'library'], ['G', 'grid'], ['B', 'board'], ['A', 'inbox'], ['D', 'dashboards']]) {
+    await app.press(key, { ctrl: true, shift: true, code: `Key${key}` });
+    await app.waitFor(`window.__cc.snapshot().view === '${view}' && !document.getElementById('view-host').hidden && document.getElementById('workspace').hidden`);
+    await app.waitFor(`!document.querySelector('.view-${view}').hidden && document.querySelector('.view-switch button.on').dataset.view === '${view}'`);
+  }
+  await app.click('.view-switch button[data-view="library"]');
+  await app.waitFor(`window.__cc.snapshot().view === 'library'`);
+  await app.click('.agent-card[data-agent="docs-pass"]');
+  await app.waitFor(`window.__cc.snapshot().view === 'terminals' && !document.getElementById('workspace').hidden`);
+  await app.waitFor(`document.querySelector('.tab[data-agent="docs-pass"].active')`);
+});

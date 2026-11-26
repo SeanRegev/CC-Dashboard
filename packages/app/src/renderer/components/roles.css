@@ -1,0 +1,19 @@
+/* Role badges (👑 Main, 🔧 Worker, ...). Owner: lead; colours tuned by the Settings track per theme. */
+.role-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  height: 18px; padding: 0 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  color: var(--role-fg, var(--text)); background: var(--role-bg, rgba(255,255,255,.06));
+  border: 1px solid var(--role-line, transparent);
+}
+.role-badge.compact { padding: 0 4px; }
+.role-emoji { font-size: 11px; }
+.role-main     { --role-fg: #F3C969; --role-bg: rgba(243,201,105,.14); --role-line: rgba(243,201,105,.35); }
+.role-worker   { --role-fg: #9FB4CC; --role-bg: rgba(159,180,204,.12); }
+.role-reviewer { --role-fg: #C7A6F2; --role-bg: rgba(199,166,242,.13); }
+.role-research { --role-fg: #7FC8C2; --role-bg: rgba(127,200,194,.12); }
+.role-tests    { --role-fg: #93D18B; --role-bg: rgba(147,209,139,.12); }
+.role-docs     { --role-fg: #E6B98A; --role-bg: rgba(230,185,138,.12); }
+.role-debug    { --role-fg: #EE8F84; --role-bg: rgba(238,143,132,.12); }
+.role-design   { --role-fg: #F09BC4; --role-bg: rgba(240,155,196,.12); }
+.role-custom   { --role-fg: var(--text); --role-bg: rgba(255,255,255,.07); --role-line: var(--line-soft); }

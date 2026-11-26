@@ -1,6 +1,6 @@
 # CC-Dashboard: working rules
 
-Read `docs/ARCHITECTURE.md` first. The contract between the core and the app is `packages/shared/protocol.js`.
+Read `docs/ARCHITECTURE.md` first (and `docs/M2.md` for milestone 2: who owns which files). The contract between the core and the app is `packages/shared/protocol.js`.
 
 - Plain JavaScript, `// @ts-check` + JSDoc. CommonJS in `packages/core` and the Electron main process; ES modules in the renderer. No bundler, no TypeScript build.
 - Windows is the first target. Never hard-code `/` paths, `bash`, `/tmp` or POSIX-only calls; use `path`, `os.tmpdir()`, `process.platform` checks. Spawning `claude` must work with `claude.exe` / `claude.cmd`.

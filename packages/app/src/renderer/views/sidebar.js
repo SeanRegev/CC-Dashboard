@@ -2,19 +2,22 @@
 /** Left sidebar: quick-switch button, spaces with counts, agents of the current space. */
 import { h, mount, icon, kbd } from '../dom.js';
 import { sortAgents, spaceCounts, describeActivity, cardTime, stateLabel } from '../logic.js';
+import { roleBadge } from '../roles.js';
+import { approvalButtons } from '../components/approval.js';
 
 /**
  * @param {HTMLElement} root
  * @param {{
  *   spaces: any[], entries: any[], currentSpace: string|null, visible: Set<string>, openTabs: Set<string>,
- *   conn: string, version: string, mod: string,
+ *   conn: string, version: string, mod: string, view?: string,
  * }} s
  * @param {{
  *   selectSpace: (id:string) => void, addSpace: () => void, openAgent: (id:string) => void,
  *   newAgent: () => void, quickSwitch: () => void,
  * }} act
+ * @param {import('../context.js').ViewContext} [ctx]  for shared components (approval buttons)
  */
-export function renderSidebar(root, s, act) {
+export function renderSidebar(root, s, act, ctx) {
   const counts = spaceCounts(s.entries);
   const space = s.spaces.find((x) => x.id === s.currentSpace) || null;
   const agents = sortAgents(s.entries.filter((e) => e.agent.spaceId === s.currentSpace));
@@ -37,18 +40,23 @@ export function renderSidebar(root, s, act) {
   const cards = agents.map((e) => {
     const st = e.status ? e.status.state : 'stopped';
     const id = e.agent.id;
-    return h('li', null, h('button', {
+    // A div acting as a button, not a <button>: it holds real buttons (Allow / Deny), and buttons can't nest.
+    return h('li', null, h('div', {
       class: `agent-card st-${st}${s.visible.has(id) ? ' visible' : ''}${s.openTabs.has(id) ? ' open' : ''}`,
+      role: 'button', tabindex: '0',
       dataset: { agent: id, state: st },
       title: `${e.agent.name} · ${stateLabel(st)}`,
-      onclick: () => act.openAgent(id),
+      onclick: (/** @type {MouseEvent} */ ev) => { if (!(/** @type {HTMLElement} */ (ev.target)).closest('button')) act.openAgent(id); },
+      onkeydown: (/** @type {KeyboardEvent} */ ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); act.openAgent(id); } },
     },
     h('span', { class: 'card-row' },
       h('span', { class: `dot st-${st}`, 'aria-label': stateLabel(st) }),
+      roleBadge(e.agent),
       h('span', { class: 'agent-name' }, e.agent.name),
       st === 'needs_you' ? h('span', { class: 'needs-badge' }, '◆ needs you') : null,
       h('span', { class: 'card-time' }, cardTime(e.status))),
-    h('span', { class: 'card-activity' }, describeActivity(e.status))));
+    h('span', { class: 'card-activity' }, describeActivity(e.status)),
+    ctx ? approvalButtons(ctx, e, { compact: true }) : null));
   });
 
   const connLabel = s.conn === 'open' ? 'Core connected' : s.conn === 'connecting' ? 'Connecting to core…' : 'Core offline';

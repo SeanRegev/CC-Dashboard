@@ -182,7 +182,14 @@ export function cardTime(status, now = Date.now()) {
  * @param {string} [platform]  process.platform; on macOS Cmd plays the role of Ctrl
  * @returns {null | {action:'newAgent'|'closeTab'|'nextTab'|'prevTab'|'gotoTab'|'toggleSplit'|'quickSwitch'|'copy'|'paste', index?:number}}
  */
+/** Ctrl+Shift+<key> → view. @type {Record<string, string>} */
+export const VIEW_KEYS = Object.freeze({
+  KeyT: 'terminals', KeyG: 'grid', KeyB: 'board', KeyA: 'inbox', KeyL: 'library', KeyD: 'dashboards',
+});
+
 export function shortcutFor(ev, platform = 'win32') {
+  // F2: rename / change role of the focused agent (no modifier; Claude Code doesn't use F2).
+  if ((ev.key === 'F2' || ev.code === 'F2') && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) return { action: 'editAgent' };
   const mod = platform === 'darwin' ? ev.metaKey : ev.ctrlKey;
   if (!mod || ev.altKey) return null;
   if (platform !== 'darwin' && ev.metaKey) return null;
@@ -193,8 +200,12 @@ export function shortcutFor(ev, platform = 'win32') {
     // Terminal-style copy/paste: Ctrl+Shift+C / Ctrl+Shift+V (plain Ctrl+C stays an interrupt).
     if (platform !== 'darwin' && (code === 'KeyC' || key === 'c')) return { action: 'copy' };
     if (platform !== 'darwin' && (code === 'KeyV' || key === 'v')) return { action: 'paste' };
+    // Views: Ctrl+Shift+<letter>. Plain Ctrl+B / Ctrl+L / Ctrl+I belong to the terminal and Claude Code.
+    const view = VIEW_KEYS[code] || VIEW_KEYS[`Key${key.toUpperCase()}`];
+    if (view) return { action: 'view', view };
     return null;
   }
+  if (code === 'Comma' || key === ',') return { action: 'settings' };
   const digit = /^Digit([1-9])$/.exec(code) || /^([1-9])$/.exec(key);
   if (digit) return { action: 'gotoTab', index: Number(digit[1]) - 1 };
   if (code === 'Backslash' || key === '\\') return { action: 'toggleSplit' };

@@ -22,7 +22,16 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { PROTOCOL_VERSION, ERRORS, homeDir } = require('../../../../shared/protocol.js');
+const { PROTOCOL_VERSION, ERRORS, ROLES, homeDir } = require('../../../../shared/protocol.js');
+const { libraryMethods } = require('./mock-library.js');
+const { dashboardMethods } = require('./mock-dashboards.js');
+
+const roleOf = (/** @type {string} */ id) => ({ ...(ROLES.find((r) => r.id === id) || ROLES[1]) });
+/** Seeded roles: the oldest agent of each space is Main. */
+const SEED_ROLES = /** @type {Record<string, string>} */ ({
+  'refactor-auth': 'main', 'fix-flaky-tests': 'tests', 'docs-pass': 'docs', 'api-client': 'worker', 'old-spike': 'research',
+  'landing-copy': 'main', 'perf-audit': 'reviewer', 'etl-retry': 'main',
+});
 
 const VERSION = 'mock-0.1.0';
 
@@ -135,7 +144,10 @@ function seed(opts) {
   ];
   /** @type {Array<[string,string,string,any,string?,string?]>} spaceId, name, model, status, prompt, mode */
   const defs = opts.empty ? [] : [
-    ['cc-dashboard', 'refactor-auth', 'claude-opus-4-1-20250805', { state: 'needs_you', tool: 'Bash', detail: 'npm install jsonwebtoken@9', message: 'Allow Bash: npm install jsonwebtoken@9', permission: true, needsSince: now - 4 * 60e3, updatedAt: now - 4 * 60e3, lastPrompt: 'Refactor the auth middleware' }, 'Refactor the auth middleware to use the new token service'],
+    ['cc-dashboard', 'refactor-auth', 'claude-opus-4-1-20250805', { state: 'needs_you', tool: 'Bash', detail: 'npm install jsonwebtoken@9', message: 'Allow Bash: npm install jsonwebtoken@9', permission: true,
+      prompt: { id: 'p-refactor-auth-1', tool: 'Bash', detail: 'npm install jsonwebtoken@9', question: 'Do you want to proceed?', options: [
+        { key: '1', label: 'Yes', kind: 'allow' }, { key: '2', label: "Yes, and don't ask again for: npm install *", kind: 'allow_always' }, { key: '3', label: 'No', kind: 'deny' }] },
+      needsSince: now - 4 * 60e3, updatedAt: now - 4 * 60e3, lastPrompt: 'Refactor the auth middleware' }, 'Refactor the auth middleware to use the new token service'],
     ['cc-dashboard', 'fix-flaky-tests', 'claude-sonnet-4-5-20250929', { state: 'working', tool: 'Bash', detail: 'npm test -- --repeat 20', updatedAt: now - 20e3, lastPrompt: 'Fix flaky checkout tests' }, 'The checkout tests fail about 1 in 5 runs. Find out why and fix it.'],
     ['cc-dashboard', 'docs-pass', 'claude-haiku-4-5-20251001', { state: 'idle', updatedAt: now - 12 * 60e3, lastPrompt: 'Update the README for the new CLI flags' }, 'Update the README for the new CLI flags', 'acceptEdits'],
     ['cc-dashboard', 'api-client', '', { state: 'starting', updatedAt: now - 5e3 }, 'Generate a typed client for the v2 API'],
@@ -153,7 +165,7 @@ function seed(opts) {
   const agents = new Map();
   defs.forEach(([spaceId, name, model, st, prompt, mode], i) => {
     const space = spaces.find((s) => s.id === spaceId);
-    const agent = { id: name, spaceId, name, cwd: space.path, sessionId: crypto.randomUUID(), model, effort: '', mode: mode || '', prompt: prompt || '', createdAt: now - (i + 1) * 3600e3 };
+    const agent = { id: name, spaceId, name, cwd: space.path, sessionId: crypto.randomUUID(), model, effort: '', mode: mode || '', prompt: prompt || '', role: roleOf(SEED_ROLES[name] || 'worker'), createdAt: now - (defs.length - i) * 3600e3 };
     const status = {
       agentId: name, counts: { tools: 3 + i, turns: 1 + (i % 3), errors: 0, subagents: 0 }, files: [], history: [[st.updatedAt, st.state]],
       usage: usageFor(name, model), ...st,
@@ -270,7 +282,10 @@ async function startMockCore(opts = {}) {
       let id = slug(p.name);
       for (let i = 2; state.agents.has(id); i++) id = `${slug(p.name)}-${i}`;
       const now = Date.now();
-      const agent = { id, spaceId: space.id, name: p.name, cwd: space.path, sessionId: crypto.randomUUID(), model: p.model || '', effort: p.effort || '', mode: p.mode || '', prompt: p.prompt || '', createdAt: now };
+      const hasMain = [...state.agents.values()].some((x) => x.agent.spaceId === space.id && x.agent.role.id === 'main');
+      const role = p.role && p.role.id ? { ...roleOf(p.role.id), ...(p.role.id === 'custom' ? { id: 'custom', label: p.role.label || 'Custom', emoji: p.role.emoji || '' } : {}) } : roleOf(hasMain ? 'worker' : 'main');
+      if (role.id === 'main') demoteMain(space.id);
+      const agent = { id, spaceId: space.id, name: p.name, cwd: space.path, sessionId: crypto.randomUUID(), model: p.model || '', effort: p.effort || '', mode: p.mode || '', prompt: p.prompt || '', role, createdAt: now };
       const status = { agentId: id, state: 'starting', counts: { tools: 0, turns: 0, errors: 0, subagents: 0 }, files: [], history: [[now, 'starting']], usage: { total: 0, context: 0, contextPct: 0, model: p.model || '' }, updatedAt: now };
       const e = { agent, status, running: true, screen: banner(agent.name, agent.cwd) + NL, line: '' };
       state.agents.set(id, e);
@@ -356,7 +371,46 @@ async function startMockCore(opts = {}) {
       setStatus(e.agent.id, { state: 'idle', permission: false });
       return true;
     },
+    'agents.update': (p) => {
+      const e = need(p);
+      if (p.name !== undefined) e.agent.name = String(p.name).trim() || e.agent.name;
+      if (p.role && p.role.id) {
+        if (p.role.id === 'main' && e.agent.role.id !== 'main') demoteMain(e.agent.spaceId);
+        e.agent.role = p.role.id === 'custom' ? { id: 'custom', label: p.role.label || 'Custom', emoji: p.role.emoji || '' } : { ...roleOf(p.role.id), ...(p.role.label ? { label: p.role.label } : {}), ...(p.role.emoji !== undefined ? { emoji: p.role.emoji } : {}) };
+      }
+      broadcast('agent.updated', { agent: e.agent });
+      return e.agent;
+    },
+    'agents.restart': (p) => {
+      const e = need(p);
+      e.running = true;
+      output(e.agent.id, `${NL}${c.muted}[restarted ${e.agent.sessionId.slice(0, 8)}]${c.reset}${NL}${PROMPT}`);
+      setStatus(e.agent.id, { state: 'idle' });
+      return true;
+    },
+    'core.shutdown': () => {
+      for (const e of state.agents.values()) if (e.running) { e.running = false; setStatus(e.agent.id, { state: 'stopped' }); }
+      return true;
+    },
+    ...libraryMethods({ broadcast, fail, ERRORS, home }),
+    ...dashboardMethods({ broadcast, fail, ERRORS, home, attachments, emitOutput: dashboardOutput }),
   };
+
+  /** Make the current Main of a space a Worker (one Main per space). @param {string} spaceId */
+  function demoteMain(spaceId) {
+    for (const x of state.agents.values()) {
+      if (x.agent.spaceId === spaceId && x.agent.role.id === 'main') {
+        x.agent.role = roleOf('worker');
+        broadcast('agent.updated', { agent: x.agent });
+      }
+    }
+  }
+
+  /** dashboard.output to clients attached to a dashboard. @param {string} id @param {string} data */
+  function dashboardOutput(id, data) {
+    const msg = JSON.stringify({ event: 'dashboard.output', data: { id, data } });
+    for (const [ws, set] of attachments) if (set.has(`dash:${id}`) && ws.readyState === ws.OPEN) ws.send(msg);
+  }
 
   /** Echo typed keys like a line editor; Enter answers "GOT: <line>". @param {any} e @param {string} data */
   function typeInto(e, data) {

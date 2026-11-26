@@ -117,7 +117,7 @@ async function main() {
       w.setContentSize(size.width, size.height);
       w.center();
     }, SIZE);
-    await page.waitForSelector(`button[data-agent="${ids['fix-tests']}"]`, { timeout: 30000 });
+    await page.waitForSelector(`.agent-card[data-agent="${ids['fix-tests']}"]`, { timeout: 30000 });
     await page.evaluate(FREEZE);
     const shot = async (/** @type {string} */ name) => {
       await h.sleep(1200);
@@ -127,14 +127,14 @@ async function main() {
     };
 
     // 1. The main window: the space's agents, one asking for permission, its live terminal.
-    await page.click(`button[data-agent="${ids['fix-tests']}"]`);
+    await page.click(`.agent-card[data-agent="${ids['fix-tests']}"]`);
     await h.sleep(2500);
     await shot('main-window');
 
     // 2. Two agents side by side.
     await page.keyboard.press('Control+Backslash');
     await h.sleep(600);
-    await page.click(`button[data-agent="${ids.explain}"]`);
+    await page.click(`.agent-card[data-agent="${ids.explain}"]`);
     await h.sleep(2000);
     await shot('split-view');
 
@@ -158,7 +158,7 @@ async function main() {
     const landing = (await rpc.call('spaces.list', {})).find((s) => s.name === 'landing-page');
     await page.click(`button[data-space="${landing.id}"]`);
     await h.sleep(600);
-    await page.click(`button[data-agent="${ids.headline}"]`);
+    await page.click(`.agent-card[data-agent="${ids.headline}"]`);
     await h.sleep(2500);
     await shot('finished-agent');
   } finally {

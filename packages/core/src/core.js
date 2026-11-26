@@ -12,21 +12,40 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { ERRORS, PROTOCOL_VERSION } = require('../../shared/protocol');
+const { ERRORS, PROTOCOL_VERSION, ROLES } = require('../../shared/protocol');
 const { newStatus, newRuntime, applyEvent, withState } = require('./status');
 const { UsageReader } = require('./usage');
 const { StateStore } = require('./store');
 const { ensureSettings } = require('./hooks-settings');
 const { AgentTerminal, Scrollback } = require('./terminal');
 const { baseCommand, claudeArgs, spawnSpec } = require('./command');
+const { Library } = require('./library');
+const { Dashboards } = require('./dashboards');
 
 /**
  * @typedef {import('./types').AgentStatus} AgentStatus
  * @typedef {import('./types').Runtime} Runtime
  * @typedef {{id:string, name:string, path:string, createdAt:number}} Space
  * @typedef {{id:string, spaceId:string, name:string, cwd:string, sessionId:string, model?:string, effort?:string,
- *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, createdAt:number}} Agent
+ *            mode?:string, prompt?:string, worktree?:string, branch?:string, taskId?:string, role:Role, createdAt:number}} Agent
+ * @typedef {{id:string, label:string, emoji:string}} Role
  */
+
+/**
+ * A role as the core stores it. Built-in ids get their label and emoji filled in (a custom label
+ * or emoji the user typed wins); 'custom' needs a label. Returns null for anything else.
+ * @param {any} role @returns {Role|null}
+ */
+function normalizeRole(role) {
+  if (!role || typeof role !== 'object' || typeof role.id !== 'string') return null;
+  const clean = (/** @type {any} */ v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) : '');
+  const builtin = ROLES.find((r) => r.id === role.id);
+  if (builtin) return { id: builtin.id, label: clean(role.label, 24) || builtin.label, emoji: role.emoji === undefined ? builtin.emoji : clean(role.emoji, 8) };
+  if (role.id !== 'custom') return null;
+  const label = clean(role.label, 24);
+  return label ? { id: 'custom', label, emoji: clean(role.emoji, 8) } : null;
+}
+const roleOf = (/** @type {string} */ id) => /** @type {Role} */ (normalizeRole({ id }));
 
 /** Set by a running Claude Code session for the processes it starts; never meant for our agents. */
 const PARENT_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_SSE_PORT'];
@@ -87,6 +106,10 @@ class Core extends EventEmitter {
     this.settingsPath = '';
     /** @type {NodeJS.Timeout|null} */ this.ticker = null;
     this.lastUsageScan = 0;
+    /** @type {Set<string>} agents to resume as soon as their process has exited (agents.restart) */
+    this.restartPending = new Set();
+    this.library = new Library(this);
+    this.dashboards = new Dashboards(this);
   }
 
   /** Load saved state. Agents whose process is gone (all of them, after a restart) become stopped. */
@@ -105,6 +128,7 @@ class Core extends EventEmitter {
       this.status.set(a.id, st);
       this.rt.set(a.id, { ...newRuntime(), ...(data.runtime[a.id] || {}), stuck: false });
     }
+    this.fixRoles();
     this.store.bind(() => this.snapshot());
     this.store.saveNow();
     this.ticker = setInterval(() => this.tick(), this.tickMs);
@@ -311,6 +335,14 @@ class Core extends EventEmitter {
     for (const k of ['name', 'prompt', 'model', 'effort', 'mode', 'worktree']) {
       if (params[k] !== undefined && params[k] !== null && typeof params[k] !== 'string') throw new RpcError(ERRORS.BAD_REQUEST, `${k} must be a string`);
     }
+    let role = null;
+    if (params.role !== undefined && params.role !== null) {
+      role = normalizeRole(params.role);
+      if (!role) throw new RpcError(ERRORS.BAD_REQUEST, 'role must be { id } with a known id, or { id: "custom", label }');
+    }
+    // The first agent of a space is its Main unless another role was asked for.
+    const hasMain = [...this.agents.values()].some((a) => a.spaceId === space.id && a.role && a.role.id === 'main');
+    if (!role) role = roleOf(hasMain ? 'worker' : 'main');
     let cwd = space.path;
     if (params.worktree) {
       cwd = path.resolve(params.worktree);
@@ -328,16 +360,102 @@ class Core extends EventEmitter {
       effort: params.effort || '',
       mode: params.mode || '',
       prompt: params.prompt || '',
+      role,
       createdAt: Date.now(),
     };
     if (params.worktree) agent.worktree = cwd;
+    const demoted = role.id === 'main' ? this.demoteMain(space.id) : [];
     this.agents.set(agent.id, agent);
     this.status.set(agent.id, newStatus(agent.id));
     this.rt.set(agent.id, newRuntime());
     this.store.saveNow();
     this.broadcast('agent.created', { agent, status: this.status.get(agent.id) });
+    for (const a of demoted) this.broadcast('agent.updated', { agent: a });
     this.launch(agent, { resume: false });
     return agent;
+  }
+
+  // ---- roles ------------------------------------------------------------------------------------
+
+  /** Make every agent of a space that is Main a Worker. @param {string} spaceId @returns {Agent[]} the changed agents */
+  demoteMain(spaceId) {
+    const out = [];
+    for (const a of this.agents.values()) {
+      if (a.spaceId !== spaceId || !a.role || a.role.id !== 'main') continue;
+      a.role = roleOf('worker');
+      out.push(a);
+    }
+    return out;
+  }
+
+  /**
+   * Every agent has a role, and every space with agents has exactly one Main (the oldest wins).
+   * Run on load (state from before roles existed) and after an agent is removed.
+   * @returns {Agent[]} agents whose role changed
+   */
+  fixRoles() {
+    const changed = new Set();
+    const bySpace = new Map();
+    for (const a of this.agents.values()) {
+      const r = normalizeRole(a.role);
+      if (!r) { a.role = roleOf('worker'); changed.add(a); } else if (JSON.stringify(r) !== JSON.stringify(a.role)) { a.role = r; changed.add(a); }
+      if (!bySpace.has(a.spaceId)) bySpace.set(a.spaceId, []);
+      bySpace.get(a.spaceId).push(a);
+    }
+    for (const list of bySpace.values()) {
+      list.sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+      const mains = list.filter((a) => a.role.id === 'main');
+      const keep = mains.length ? mains[0] : list[0];
+      for (const a of list) {
+        const want = a === keep ? 'main' : (a.role.id === 'main' ? 'worker' : a.role.id);
+        if (want !== a.role.id) { a.role = roleOf(want); changed.add(a); }
+      }
+    }
+    return [...changed];
+  }
+
+  agentsUpdate(params) {
+    const agent = this.getAgent(params && params.id);
+    let name = agent.name;
+    if (params.name !== undefined) {
+      if (typeof params.name !== 'string' || !params.name.trim()) throw new RpcError(ERRORS.BAD_REQUEST, 'name must be a non-empty string');
+      name = params.name.trim().slice(0, 80);
+    }
+    let role = agent.role;
+    if (params.role !== undefined) {
+      const r = normalizeRole(params.role);
+      if (!r) throw new RpcError(ERRORS.BAD_REQUEST, 'role must be { id } with a known id, or { id: "custom", label }');
+      role = r;
+    }
+    const others = [];
+    if (role.id === 'main' && agent.role.id !== 'main') others.push(...this.demoteMain(agent.spaceId));
+    agent.name = name;
+    agent.role = role;
+    // Taking Main away from the only Main gives it to the oldest other agent (one Main per space).
+    others.push(...this.fixRoles().filter((a) => a !== agent));
+    this.store.saveNow();
+    this.broadcast('agent.updated', { agent });
+    for (const a of new Set(others)) if (a !== agent) this.broadcast('agent.updated', { agent: a });
+    return agent;
+  }
+
+  /** Stop and resume the same conversation, e.g. so it picks up changed plugins. */
+  agentsRestart(params) {
+    const agent = this.getAgent(params && params.id);
+    const term = this.terms.get(agent.id);
+    if (!term || !term.running) {
+      this.launch(agent, { resume: true });
+      return true;
+    }
+    this.restartPending.add(agent.id);
+    this.agentsStop({ id: agent.id });
+    return true;
+  }
+
+  /** Stop every agent and ask the process to exit (index.js listens for 'shutdown-request'). */
+  coreShutdown() {
+    setImmediate(() => this.emit('shutdown-request'));
+    return true;
   }
 
   /** @param {Agent} agent @param {{resume: boolean}} opts */
@@ -402,6 +520,10 @@ class Core extends EventEmitter {
       if (stopped) return s.state === 'stopped' ? null : { status: withState(s, 'stopped', { tool: '' }) };
       return s.state === 'exited' ? null : { status: withState(s, 'exited', { tool: '' }) };
     });
+    if (this.restartPending.delete(id)) {
+      const agent = this.agents.get(id);
+      if (agent) this.launch(agent, { resume: true });
+    }
   }
 
   agentsStop(params) {
@@ -443,8 +565,10 @@ class Core extends EventEmitter {
     this.rt.delete(agent.id);
     this.scrollbacks.delete(agent.id);
     this.sizes.delete(agent.id);
+    const promoted = this.fixRoles();
     this.store.saveNow();
     this.broadcast('agent.removed', { id: agent.id });
+    for (const a of promoted) this.broadcast('agent.updated', { agent: a });
     return true;
   }
 
@@ -510,6 +634,7 @@ class Core extends EventEmitter {
   /** Save, then end every agent process. */
   shutdown() {
     if (this.ticker) clearInterval(this.ticker);
+    try { this.dashboards.shutdown(); } catch { /* best effort */ }
     try { this.store.saveNow(); } catch { /* best effort */ }
     for (const [id, term] of this.terms) {
       this.userStopped.add(id);
@@ -518,4 +643,4 @@ class Core extends EventEmitter {
   }
 }
 
-module.exports = { Core, RpcError, slug, defaultTranscriptPath, STUCK_MESSAGE, PROMPT_MARKERS };
+module.exports = { Core, RpcError, slug, defaultTranscriptPath, normalizeRole, STUCK_MESSAGE, PROMPT_MARKERS };

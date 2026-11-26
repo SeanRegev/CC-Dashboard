@@ -12,6 +12,14 @@ import {
 import { TerminalView } from './terminal.js';
 import { renderSidebar } from './views/sidebar.js';
 import { openNewAgentDialog, openQuickSwitcher, isModalOpen, modalKind, closeModal, toast } from './dialogs.js';
+import { roleBadge } from './roles.js';
+import { approvalButtons } from './components/approval.js';
+import { createGridView } from './views/grid.js';
+import { createBoardView } from './views/board.js';
+import { createInboxView } from './views/inbox.js';
+import { createLibraryView } from './views/library.js';
+import { createDashboardsView } from './views/dashboards.js';
+import { openSettingsDialog, openAgentEditDialog, applySettings } from './views/settings.js';
 
 /** @type {{platform:string, getConnection:() => Promise<{port:number, token:string}|null>, notify:(t:string, b:string, id?:string) => Promise<any>, pickFolder:() => Promise<string|null>, onSelectAgent:(fn:(id:string)=>void) => any}} */
 const bridge = /** @type {any} */ (window).cc || {
@@ -45,6 +53,8 @@ const S = {
   /** @type {Map<string, TerminalView>} */
   views: new Map(),
   loaded: false,
+  /** @type {import('./context.js').ViewName} main area: terminal panes, or one of the views */
+  view: 'terminals',
 };
 
 const client = new CoreClient({ getConnection: () => bridge.getConnection(), clientName: 'cc-dashboard-app' });
@@ -52,7 +62,7 @@ const client = new CoreClient({ getConnection: () => bridge.getConnection(), cli
 // ---------- persistence (per-window convenience only) ----------
 function saveUi() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ currentSpace: S.currentSpace, tabs: S.tabs, layout: S.layout }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ currentSpace: S.currentSpace, tabs: S.tabs, layout: S.layout, view: S.view }));
   } catch { /* storage unavailable */ }
 }
 function loadUi() {
@@ -82,6 +92,7 @@ async function loadAll() {
     S.loaded = true;
     const ui = loadUi();
     if (ui && S.spaces.some((s) => s.id === ui.currentSpace)) S.currentSpace = ui.currentSpace;
+    if (ui && typeof ui.view === 'string' && VIEW_NAMES.includes(ui.view)) setView(ui.view, { quiet: true });
     const tabs = ui && Array.isArray(ui.tabs) ? ui.tabs.filter((/** @type {string} */ id) => S.entries.has(id)) : [];
     for (const id of tabs) ensureView(id);
     if (ui && ui.layout && Array.isArray(ui.layout.panes)) {
@@ -144,6 +155,12 @@ client.on('agent.exit', (/** @type {any} */ d) => {
   if (e.status && !['stopped', 'exited'].includes(e.status.state)) e.status = { ...e.status, state: 'exited', updatedAt: Date.now() };
   scheduleRender();
 });
+client.on('agent.updated', (/** @type {any} */ d) => {
+  const e = d && d.agent && S.entries.get(d.agent.id);
+  if (!e) return;
+  e.agent = d.agent;
+  scheduleRender();
+});
 client.on('space.changed', (/** @type {any} */ d) => {
   S.spaces = (d && d.spaces) || [];
   if (S.currentSpace && !S.spaces.some((s) => s.id === S.currentSpace)) S.currentSpace = S.spaces[0] ? S.spaces[0].id : null;
@@ -158,9 +175,11 @@ client.on('notify', (/** @type {any} */ n) => {
 bridge.onSelectAgent((id) => { if (S.entries.has(id)) openAgent(id); });
 
 // ---------- tabs & panes ----------
-/** @param {string} id */
-function ensureView(id) {
+/** @param {string} id @param {{tab?: boolean}} [opts] tab: false for a terminal shown by a view (grid tile) */
+function ensureView(id, opts = {}) {
+  const wantTab = opts.tab !== false;
   let v = S.views.get(id);
+  if (v && wantTab && !S.tabs.includes(id)) S.tabs.push(id);
   if (!v) {
     v = new TerminalView({
       id, client, platform,
@@ -171,10 +190,19 @@ function ensureView(id) {
       onError: (m) => toast(m, 'error'),
     });
     S.views.set(id, v);
-    if (!S.tabs.includes(id)) S.tabs.push(id);
+    if (wantTab && !S.tabs.includes(id)) S.tabs.push(id);
     v.attach();
   }
   return v;
+}
+
+/** A view no longer shows this agent's terminal: detach it unless a tab or pane still uses it. @param {string} id */
+function releaseTerminal(id) {
+  if (S.tabs.includes(id) || S.layout.panes.includes(id)) return;
+  const v = S.views.get(id);
+  if (!v) return;
+  v.dispose();
+  S.views.delete(id);
 }
 
 /** Open an agent: tab + focused pane + keyboard focus. @param {string} id */
@@ -185,6 +213,7 @@ function openAgent(id) {
   ensureView(id);
   S.layout = showInPane(S.layout, id);
   S.currentSpace = e.agent.spaceId;
+  if (S.view !== 'terminals') setView('terminals', { quiet: true });
   layoutPanes();
   renderChrome();
   saveUi();
@@ -364,6 +393,7 @@ function renderChrome() {
         onclick: () => selectTab(id),
       },
       h('span', { class: `dot st-${st}` }),
+      e ? roleBadge(e.agent, { compact: true }) : null,
       h('span', { class: 'tab-name' }, e ? e.agent.name : id),
       st === 'needs_you' ? h('span', { class: 'tab-needs', title: 'Needs you' }, '◆') : null,
       h('button', { class: 'tab-close', title: `Close tab (${MOD}+W); the agent keeps running`, onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); closeTab(id); } }, icon('close')));
@@ -376,21 +406,101 @@ function renderChrome() {
   const split = S.layout.panes.length > 1;
   const needs = entries.filter((e) => e.status && e.status.state === 'needs_you').length;
   mount(els.actions,
+    viewSwitch(needs),
     needs ? h('button', { class: 'needs-pill', title: 'Open the agent that has waited longest', onclick: openNextNeedy }, `◆ ${needs} need${needs === 1 ? 's' : ''} you`) : null,
     h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')));
   document.title = needs ? `(${needs}) CC-Dashboard` : 'CC-Dashboard';
 
   renderSidebar(els.sidebar, {
     spaces: S.spaces, entries, currentSpace: S.currentSpace, visible, openTabs: new Set(S.tabs),
-    conn: S.conn, version: S.version, mod: MOD,
+    conn: S.conn, version: S.version, mod: MOD, view: S.view,
   }, {
-    selectSpace: (id) => { S.currentSpace = id; saveUi(); scheduleRender(); },
+    selectSpace: (id) => ctx.selectSpace(id),
     addSpace, openAgent, newAgent, quickSwitch,
-  });
+  }, ctx);
 
   S.layout.panes.forEach((id, i) => renderPaneChrome(i, id));
   renderBanner();
+  const cur = S.view !== 'terminals' ? viewInstance(S.view) : null;
+  if (cur) cur.update();
 }
+
+// ---------- views (Grid, Board, Inbox, Library, Dashboards) ----------
+/** @type {import('./context.js').ViewName[]} */
+const VIEW_NAMES = ['terminals', 'grid', 'board', 'inbox', 'library', 'dashboards'];
+const VIEW_FACTORIES = /** @type {Record<string, (ctx: any) => import('./context.js').View>} */ ({
+  grid: createGridView, board: createBoardView, inbox: createInboxView, library: createLibraryView, dashboards: createDashboardsView,
+});
+const VIEW_LABELS = /** @type {Record<string, [string, string]>} */ ({
+  terminals: ['Terminals', 'T'], grid: ['Grid', 'G'], board: ['Board', 'B'], inbox: ['Inbox', 'A'], library: ['Library', 'L'], dashboards: ['Dashboards', 'D'],
+});
+/** @type {Map<string, import('./context.js').View>} */
+const viewInstances = new Map();
+const viewHost = /** @type {HTMLElement} */ (document.getElementById('view-host'));
+
+/** @param {string} name */
+function viewInstance(name) {
+  let v = viewInstances.get(name);
+  if (!v && VIEW_FACTORIES[name]) {
+    v = VIEW_FACTORIES[name](ctx);
+    v.el.hidden = true;
+    viewHost.append(v.el);
+    viewInstances.set(name, v);
+  }
+  return v || null;
+}
+
+/** @param {import('./context.js').ViewName} name @param {{quiet?: boolean}} [opts] quiet: no render/save (caller does it) */
+function setView(name, opts = {}) {
+  if (!VIEW_NAMES.includes(name)) return;
+  const prev = S.view;
+  if (prev !== name && prev !== 'terminals') {
+    const pv = viewInstances.get(prev);
+    if (pv) { pv.el.hidden = true; if (pv.hide) pv.hide(); }
+  }
+  S.view = name;
+  const terminals = name === 'terminals';
+  workspace.hidden = !terminals;
+  viewHost.hidden = terminals;
+  if (!terminals) {
+    const v = viewInstance(name);
+    if (v && (prev !== name || v.el.hidden)) { v.el.hidden = false; if (v.show) v.show(); }
+  }
+  if (opts.quiet) return;
+  saveUi();
+  if (terminals) { layoutPanes(); focusTerminal(); }
+  renderChrome();
+}
+
+/** @param {number} needs */
+function viewSwitch(needs) {
+  return h('div', { class: 'view-switch', role: 'tablist', 'aria-label': 'Views' },
+    VIEW_NAMES.map((name) => h('button', {
+      class: S.view === name ? 'on' : '', role: 'tab', 'aria-selected': String(S.view === name),
+      title: `${VIEW_LABELS[name][0]} (${MOD}+Shift+${VIEW_LABELS[name][1]})`, dataset: { view: name },
+      onclick: () => setView(name),
+    }, VIEW_LABELS[name][0], name === 'inbox' && needs ? h('span', { class: 'count' }, String(needs)) : null)));
+}
+
+/** @type {import('./context.js').ViewContext} */
+const ctx = {
+  state: () => S,
+  client,
+  rpc: (method, params) => rpc(method, params),
+  openAgent: (id) => openAgent(id),
+  newAgent: (spaceId) => { if (spaceId) S.currentSpace = spaceId; newAgent(); },
+  editAgent: (id) => openAgentEditDialog(ctx, id),
+  setView: (name) => setView(name),
+  selectSpace: (id) => { S.currentSpace = id; saveUi(); scheduleRender(); },
+  render: () => scheduleRender(),
+  toast: (text, kind) => toast(text, kind),
+  spaceName: (id) => spaceName(id),
+  bridge,
+  mod: MOD,
+  platform,
+  terminal: (id) => ensureView(id, { tab: false }),
+  releaseTerminal: (id) => releaseTerminal(id),
+};
 
 /** @param {number} i @param {string|null} id */
 function renderPaneChrome(i, id) {
@@ -410,9 +520,11 @@ function renderPaneChrome(i, id) {
   const running = e.running && !['stopped', 'exited'].includes(st);
   mount(p.head,
     h('span', { class: `dot st-${st}` }),
+    roleBadge(e.agent),
     h('span', { class: 'pane-title' }, e.agent.name),
     h('span', { class: 'pane-path', title: e.agent.cwd }, `${spaceName(e.agent.spaceId)}  ·  ${e.agent.cwd}`),
     h('span', { class: 'grow' }),
+    approvalButtons(ctx, e),
     running
       ? h('button', { class: 'btn ghost small', title: 'Stop the Claude process (the chat is kept)', onclick: () => rpc('agents.stop', { id: e.agent.id }) }, icon('stop'), 'Stop')
       : h('button', { class: 'btn primary small', title: 'Resume this session', onclick: () => rpc('agents.resume', { id: e.agent.id }) }, icon('play'), 'Resume'),
@@ -514,6 +626,9 @@ window.addEventListener('keydown', (ev) => {
   if (isModalOpen() && sc.action !== 'quickSwitch') return;
   ev.preventDefault();
   ev.stopPropagation();
+  if (sc.action === 'view' && sc.view) { setView(/** @type {any} */ (sc.view)); return; }
+  if (sc.action === 'settings') { openSettingsDialog(ctx); return; }
+  if (sc.action === 'editAgent') { const id = focusedId(); if (id) openAgentEditDialog(ctx, id); return; }
   const cur = focusedId();
   const idx = cur ? S.tabs.indexOf(cur) : -1;
   switch (sc.action) {
@@ -541,7 +656,7 @@ setInterval(scheduleRender, 20000);
 
 // ---------- debug hook for e2e tests and screenshots (read-only) ----------
 /** @type {any} */ (window).__cc = {
-  snapshot: () => ({ conn: S.conn, tabs: [...S.tabs], layout: JSON.parse(JSON.stringify(S.layout)), currentSpace: S.currentSpace, agents: entriesArr().map((e) => e.agent.id) }),
+  snapshot: () => ({ conn: S.conn, tabs: [...S.tabs], layout: JSON.parse(JSON.stringify(S.layout)), currentSpace: S.currentSpace, view: S.view, agents: entriesArr().map((e) => e.agent.id) }),
   /** Text of an open terminal's buffer. @param {string} id */
   termText: (id) => {
     const v = S.views.get(id);
@@ -554,6 +669,7 @@ setInterval(scheduleRender, 20000);
   termSize: (/** @type {string} */ id) => { const v = S.views.get(id); return v ? { cols: v.term.cols, rows: v.term.rows } : null; },
 };
 
+applySettings(ctx);
 renderChrome();
 layoutPanes();
 client.start();

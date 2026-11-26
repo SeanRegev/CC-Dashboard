@@ -280,6 +280,8 @@ kbd {
   border: 1px solid transparent;
   position: relative;
 }
+.agent-card { cursor: pointer; box-sizing: border-box; }
+.agent-card:focus-visible { outline: 2px solid var(--coral, #E8805F); outline-offset: 1px; }
 .agent-card:hover { background: rgba(255,255,255,.03); border-color: var(--line-soft); }
 .agent-card.open { background: rgba(255,255,255,.02); }
 .agent-card.visible { background: var(--card); border-color: var(--line); }
@@ -323,6 +325,19 @@ kbd {
 .conn-dot.conn-connecting { background: var(--needs); animation: pulse 1s infinite; }
 
 /* ---------- workspace & panes ---------- */
+/* The terminal panes and the other views share the main cell; one of them is shown. */
+.workspace, .view-host { grid-column: 2; grid-row: 2; }
+.view-host { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 var(--gap) var(--gap) var(--gap); }
+.view-host[hidden], .workspace[hidden] { display: none; }
+.view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.view[hidden] { display: none; }
+.view-placeholder { margin: auto; text-align: center; }
+/* top bar view switcher */
+.view-switch { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--panel); -webkit-app-region: no-drag; }
+.view-switch button { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.view-switch button:hover { color: var(--text); }
+.view-switch button.on { background: var(--panel-2, rgba(255,255,255,.08)); color: var(--text); }
+.view-switch .count { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: rgba(240,180,76,.18); color: #F0B44C; font-size: 10px; line-height: 16px; text-align: center; }
 .workspace {
   position: relative;
   display: flex; gap: var(--gap);
