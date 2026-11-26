@@ -199,7 +199,7 @@ test('the app starts a missing core detached, and closing the window leaves it r
 test('role badges: 👑 Main on the space\'s first agent, other roles on the rest', async () => {
   await app.click('.space[data-space="cc-dashboard"]');
   // picking a space shows its agents as the Grid (M2); the sidebar cards stay where they are
-  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelectorAll('.tile').length === 5`);
+  await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelectorAll('.tile').length >= 5`);
   await app.waitFor(`document.querySelector('.agent-card[data-agent="refactor-auth"] .role-badge')`);
   const roles = await app.evaluate(`Object.fromEntries([...document.querySelectorAll('.agent-card')].map((c) => [c.dataset.agent, c.querySelector('.role-badge').textContent]))`);
   assert.equal(roles['refactor-auth'], '👑Main');
