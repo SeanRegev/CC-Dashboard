@@ -66,6 +66,7 @@ export function openNewAgentDialog(s, onCreate) {
   const name = /** @type {HTMLInputElement} */ (h('input', { id: 'na-name', class: 'input', placeholder: suggestAgentName(s.entries, spaceId), autocomplete: 'off', spellcheck: 'false', maxlength: '60' }));
   spaceSel.addEventListener('change', () => { name.placeholder = suggestAgentName(s.entries, spaceSel.value); });
   const prompt = /** @type {HTMLTextAreaElement} */ (h('textarea', { id: 'na-prompt', class: 'input', rows: '4', placeholder: 'What should this agent do? (optional: you can also type in its terminal)' }));
+  if (s.prompt) prompt.value = s.prompt;
   const model = segmented('model', [['', 'Default'], ['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], '');
   const mode = segmented('mode', [['', 'Ask'], ['acceptEdits', 'Accept edits'], ['plan', 'Plan']], '');
   const worktree = /** @type {HTMLInputElement} */ (h('input', { type: 'checkbox', id: 'na-worktree', disabled: true }));

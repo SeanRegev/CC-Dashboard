@@ -488,7 +488,7 @@ const ctx = {
   client,
   rpc: (method, params) => rpc(method, params),
   openAgent: (id) => openAgent(id),
-  newAgent: (spaceId) => { if (spaceId) S.currentSpace = spaceId; newAgent(); },
+  newAgent: (spaceId, preset) => { if (spaceId) S.currentSpace = spaceId; newAgent(preset || {}); },
   editAgent: (id) => openAgentEditDialog(ctx, id),
   setView: (name) => setView(name),
   selectSpace: (id) => { S.currentSpace = id; saveUi(); scheduleRender(); },
@@ -567,9 +567,10 @@ async function rpc(method, params) {
   }
 }
 
-function newAgent() {
+/** @param {{prompt?: string}} [preset] e.g. the Library's "Try it" fills in "/skill-name " */
+function newAgent(preset = {}) {
   if (!S.spaces.length) { addSpace(); return; }
-  openNewAgentDialog({ spaces: S.spaces, entries: entriesArr(), spaceId: S.currentSpace, mod: MOD }, async (p) => {
+  openNewAgentDialog({ spaces: S.spaces, entries: entriesArr(), spaceId: S.currentSpace, mod: MOD, prompt: preset.prompt }, async (p) => {
     /** @type {any} */
     const params = { spaceId: p.spaceId, name: p.name };
     if (p.prompt) params.prompt = p.prompt;

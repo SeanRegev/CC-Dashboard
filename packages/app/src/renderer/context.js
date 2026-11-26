@@ -8,7 +8,7 @@
  * @property {import('./client.js').CoreClient} client
  * @property {(method: string, params?: any) => Promise<any>} rpc   client.call that shows a toast on failure and resolves undefined
  * @property {(id: string) => void} openAgent        show the agent in the Terminals view (tab + focused pane)
- * @property {(spaceId?: string) => void} newAgent   the New agent dialog (optionally preset to a space)
+ * @property {(spaceId?: string, preset?: {prompt?: string}) => void} newAgent   the New agent dialog (optionally preset to a space and a first prompt)
  * @property {(id: string) => void} editAgent        rename / change role (Settings track's dialog)
  * @property {(name: ViewName) => void} setView
  * @property {(id: string|null) => void} selectSpace
