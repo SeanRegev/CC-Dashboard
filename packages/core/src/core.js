@@ -324,12 +324,16 @@ class Core extends EventEmitter {
     this.promptTimers.set(id, t);
   }
 
-  /** Resolves once the headless screen has parsed every byte received so far. @param {AgentTerminal} term @returns {Promise<void>} */
+  /**
+   * Resolves true once the headless screen has parsed every byte received so far; false if it
+   * didn't within a moment (huge backlog, terminal gone).
+   * @param {AgentTerminal} term @returns {Promise<boolean>}
+   */
   flushScreen(term) {
     return new Promise((resolve) => {
-      const t = setTimeout(resolve, 500);
+      const t = setTimeout(() => resolve(false), 1000);
       t.unref();
-      try { term.screen.write('', () => { clearTimeout(t); resolve(); }); } catch { clearTimeout(t); resolve(); }
+      try { term.screen.write('', () => { clearTimeout(t); resolve(true); }); } catch { clearTimeout(t); resolve(false); }
     });
   }
 
@@ -693,8 +697,9 @@ class Core extends EventEmitter {
    * @param {(p: import('./prompt').PermissionPrompt) => T} act @returns {Promise<T>}
    */
   async checkedPrompt(id, term, promptId, act) {
-    await this.flushScreen(term);
+    const flushed = await this.flushScreen(term);
     if (this.terms.get(id) !== term || !term.running) throw new RpcError(ERRORS.NOT_RUNNING, `agent ${id} is not running`);
+    if (!flushed) throw new RpcError(ERRORS.PROMPT_CHANGED, 'the screen is still changing; check the prompt again');
     if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
     const p = this.promptFor(id, /** @type {AgentStatus} */ (this.status.get(id)), /** @type {Runtime} */ (this.rt.get(id)));
     if (!p || p.id !== promptId) {

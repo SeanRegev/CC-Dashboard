@@ -252,3 +252,32 @@ test('notify carries kind: needs_you, done', async (t) => {
   await postHook(core, agent.id, 'Stop', {});
   await waitFor(() => notes.some((n) => n.kind === 'done' && n.agentId === agent.id), { what: 'done notify' });
 });
+
+test('in-process: a screen that cannot be brought up to date is never answered', async (t) => {
+  const { Core } = require('../../packages/core/src/core');
+  const { newStatus, newRuntime } = require('../../packages/core/src/status');
+  const { tempHome, rmrf } = require('./helpers');
+  const home = tempHome();
+  const keepAlive = setInterval(() => {}, 1000); // the real core's server keeps the loop alive
+  t.after(() => { clearInterval(keepAlive); rmrf(home); });
+  const core = new Core({ home, version: 'test', env: {} });
+  const screen = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'prompts', 'bash-4opt.txt'), 'utf8');
+  core.agents.set('a', /** @type {any} */ ({ id: 'a', spaceId: 's', name: 'a', cwd: home, sessionId: 'x', role: { id: 'main', label: 'Main', emoji: '' }, createdAt: 1 }));
+  core.status.set('a', { ...newStatus('a'), state: 'needs_you', permission: true, message: 'Wants to use Bash' });
+  core.rt.set('a', { ...newRuntime(), permAt: 5 });
+  /** @type {string[]} */
+  const written = [];
+  /** @type {any} */
+  const term = { running: true, kill: () => {}, screen: { write: () => {} }, screenText: () => screen, rawWrite: (/** @type {string} */ d) => written.push(d), write: (/** @type {string} */ d) => written.push(d) };
+  core.terms.set('a', term);
+  const p = core.promptFor('a', /** @type {any} */ (core.status.get('a')), /** @type {any} */ (core.rt.get('a')));
+  assert.ok(p);
+  await assert.rejects(core.agentsApprove({ id: 'a', promptId: p.id }), { code: 'prompt_changed' });
+  assert.deepEqual(written, []);
+  term.screen.write = (/** @type {string} */ _d, /** @type {() => void} */ cb) => cb();
+  assert.equal(await core.agentsApprove({ id: 'a', promptId: p.id, choice: 'allow_always' }), true);
+  assert.deepEqual(written, ['2']);
+  assert.equal(core.status.get('a')?.state, 'working');
+  assert.equal(core.status.get('a')?.prompt, undefined);
+  core.shutdown();
+});
