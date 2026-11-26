@@ -13,7 +13,7 @@ import { TerminalView } from './terminal.js';
 import { renderSidebar } from './views/sidebar.js';
 import { openNewAgentDialog, openQuickSwitcher, isModalOpen, modalKind, closeModal, toast } from './dialogs.js';
 import { roleBadge } from './roles.js';
-import { approvalButtons } from './components/approval.js';
+import { approvalButtons, updateAttention } from './components/approval.js';
 import { createGridView } from './views/grid.js';
 import { createBoardView } from './views/board.js';
 import { createInboxView } from './views/inbox.js';
@@ -410,6 +410,7 @@ function renderChrome() {
     needs ? h('button', { class: 'needs-pill', title: 'Open the agent that has waited longest', onclick: openNextNeedy }, `◆ ${needs} need${needs === 1 ? 's' : ''} you`) : null,
     h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')));
   document.title = needs ? `(${needs}) CC-Dashboard` : 'CC-Dashboard';
+  updateAttention(ctx); // taskbar badge + window flash (Approvals track)
 
   renderSidebar(els.sidebar, {
     spaces: S.spaces, entries, currentSpace: S.currentSpace, visible, openTabs: new Set(S.tabs),
