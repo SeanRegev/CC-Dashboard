@@ -119,7 +119,7 @@ function libraryMethods(ctx) {
       };
     },
     'library.marketplace': (/** @type {any} */ p) => {
-      const a = p && p.action;
+      const a = (p && p.action) || 'update';
       if (a === 'add') {
         if (!p.source) throw ctx.fail(ctx.ERRORS.BAD_REQUEST, 'source is required');
         const name = String(p.source).split(/[/:]/).filter(Boolean).pop() || 'market';
