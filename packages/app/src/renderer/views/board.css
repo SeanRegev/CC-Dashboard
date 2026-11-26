@@ -1,1 +1,32 @@
-/* Board view. Owner: the Layouts track (M2). */
+/* Board view. Owner: Layouts (M2). */
+.view-board { gap: 8px; min-height: 0; }
+.board-bar { flex: none; display: flex; align-items: center; gap: 12px; height: 30px; padding: 0 2px; }
+.board-title { font-weight: 650; }
+.board-count { color: var(--faint); font-size: 12px; margin-left: auto; }
+.board-filter { margin: 0; }
+.board-filter button { padding: 0 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.board-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
+.board-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.board-col-head { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.col-needs .board-col-head { color: var(--needs); }
+.bch-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: rgba(255,255,255,.06); text-align: center; line-height: 18px; font-size: 11px; }
+.board-col-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.board-col-empty { color: var(--faint); font-size: 12px; text-align: center; padding: 18px 0; }
+.board-card {
+  display: flex; flex-direction: column; gap: 5px; flex: none; min-width: 0; padding: 9px 10px;
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: 10px; cursor: pointer;
+}
+.board-card:hover { border-color: var(--line); background: var(--card-hi); }
+.board-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.board-card.st-needs_you { background: rgba(240, 180, 76, .07); border-color: rgba(240, 180, 76, .28); }
+.bc-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bc-name { flex: 1 1 0; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-time { flex: none; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.bc-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bc-space { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bc-activity { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-card.st-needs_you .bc-activity { color: #E9D2A6; }
+.bc-foot { display: flex; align-items: center; }
+.bc-ctx { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.bc-ctx .gauge-bar { width: 56px; }
+@media (max-width: 1100px) { .board-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); } }
