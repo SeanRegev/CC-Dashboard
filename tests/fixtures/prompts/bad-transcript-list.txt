@@ -1,0 +1,15 @@
+● Here is what the dialog looks like when Claude asks:
+
+  Bash command
+  npm test
+  Do you want to proceed?
+  1. Yes
+  2. No
+
+  Answer it in the terminal, or from CC-Dashboard's sidebar.
+  Anything else you want me to explain?
+
+╭──────────────────────────────────────────────────────────────────╮
+│ >                                                                │
+╰──────────────────────────────────────────────────────────────────╯
+  ? for shortcuts

@@ -1,0 +1,14 @@
+● The middleware now delegates verification to TokenService.
+  I need a new dependency for JWT parsing.
+
+╭────────────────────────────────────────────────────────────────────────────────╮
+│ Bash command                                                                   │
+│                                                                                │
+│   npm install jsonwebtoken@9                                                   │
+│   Install the JWT library                                                      │
+│                                                                                │
+│ Do you want to proceed?                                                        │
+│ ❯ 1. Yes                                                                       │
+│   2. Yes, and don't ask again for npm install commands in /home/user/app       │
+│   3. No, and tell Claude what to do differently (esc)                          │
+╰────────────────────────────────────────────────────────────────────────────────╯

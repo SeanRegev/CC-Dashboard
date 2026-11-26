@@ -21,6 +21,7 @@ const { AgentTerminal, Scrollback } = require('./terminal');
 const { baseCommand, claudeArgs, spawnSpec } = require('./command');
 const { Library } = require('./library');
 const { Dashboards } = require('./dashboards');
+const { parsePrompt } = require('./prompt');
 
 /**
  * @typedef {import('./types').AgentStatus} AgentStatus
@@ -51,6 +52,9 @@ const roleOf = (/** @type {string} */ id) => /** @type {Role} */ (normalizeRole(
 const PARENT_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_CODE_SSE_PORT'];
 const STUCK_MESSAGE = 'Claude is showing a screen that needs you. Open it to check.';
 const PROMPT_MARKERS = ['Esc to cancel', 'Do you want'];
+/** After terminal output, read the prompt this much later (output comes in bursts). */
+const PROMPT_READ_MS = 40;
+const APPROVE_CHOICES = ['allow', 'allow_always'];
 
 class RpcError extends Error {
   /** @param {string} code @param {string} message */
@@ -110,6 +114,8 @@ class Core extends EventEmitter {
     this.restartPending = new Set();
     this.library = new Library(this);
     this.dashboards = new Dashboards(this);
+    /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
+    this.promptTimers = new Map();
   }
 
   /** Load saved state. Agents whose process is gone (all of them, after a restart) become stopped. */
@@ -154,7 +160,8 @@ class Core extends EventEmitter {
   /** @param {string} event @param {any} data */
   broadcast(event, data) { this.emit('broadcast', event, data); }
 
-  notify(title, body, agentId) { this.broadcast('notify', { title, body, agentId }); }
+  /** @param {string} title @param {string} body @param {string} agentId @param {'needs_you'|'done'|'exited'|'info'} kind */
+  notify(title, body, agentId, kind) { this.broadcast('notify', { title, body, agentId, kind }); }
 
   /**
    * The one place an agent's status changes.
@@ -168,8 +175,9 @@ class Core extends EventEmitter {
     if (!before || !rtBefore) return null;
     const out = fn(before, rtBefore);
     if (!out) return before;
-    const after = out.status;
     const rt = out.rt || rtBefore;
+    // status.prompt always matches the screen at the moment the status changes.
+    const after = this.withPrompt(id, out.status, rt);
     this.status.set(id, after);
     this.rt.set(id, rt);
     // A state change (working → idle, → needs_you, …) is on disk before anyone hears of it. On
@@ -190,14 +198,14 @@ class Core extends EventEmitter {
     const agent = this.agents.get(id);
     const name = agent ? agent.name : id;
     if (after.state === 'needs_you' && before.state !== 'needs_you') {
-      this.notify(`${name} needs you`, after.message || 'Waiting for you', id);
+      this.notify(`${name} needs you`, after.message || 'Waiting for you', id, 'needs_you');
     } else if (event === 'Stop' && rtBefore.turnStartedAt) {
       const took = after.updatedAt - rtBefore.turnStartedAt;
       if (took >= this.longTurnMs) {
         const secs = Math.floor(took / 1000);
         const m = Math.floor(secs / 60);
         const s = String(secs % 60).padStart(2, '0');
-        this.notify(`${name} is done (${m}m${s}s)`, after.lastPrompt || 'Finished its turn', id);
+        this.notify(`${name} is done (${m}m${s}s)`, after.lastPrompt || 'Finished its turn', id, 'done');
       }
     }
   }
@@ -236,6 +244,9 @@ class Core extends EventEmitter {
     if (scanUsage) this.lastUsageScan = now;
     for (const [id, term] of this.terms) {
       if (!term.running) continue;
+      // Output may have stopped before the last redraw was read (no more data events to trigger it).
+      const st0 = this.status.get(id);
+      if (st0 && st0.state === 'needs_you') this.refreshPrompt(id);
       const s = this.status.get(id);
       const r = this.rt.get(id);
       if (!s || !r) continue;
@@ -256,6 +267,74 @@ class Core extends EventEmitter {
         }
       }
     }
+  }
+
+  // ---- the permission prompt on screen (status.prompt) -------------------------------------
+
+  /** Waiting on a permission prompt: a PermissionRequest, or (older Claude) a "needs your permission" Notification. @param {AgentStatus} s */
+  static permissionStatus(s) {
+    return Boolean(s && s.state === 'needs_you' && (s.permission || /permission/i.test(s.message || '')));
+  }
+
+  /**
+   * The prompt on the agent's screen right now, or null (none, or one the parser can't read).
+   * The fingerprint is salted with the agent and its last PermissionRequest, so the same prompt
+   * asked again, or by another agent, gets another id.
+   * @param {string} id @param {AgentStatus} s @param {Runtime} r
+   */
+  promptFor(id, s, r) {
+    if (!Core.permissionStatus(s)) return null;
+    const term = this.terms.get(id);
+    if (!term || !term.running) return null;
+    return parsePrompt(term.screenText(), { salt: `${id}:${(r && r.permAt) || 0}` });
+  }
+
+  /** s with prompt (and permission) set from the screen, or prompt removed. Returns s itself when nothing changes. */
+  withPrompt(id, s, r) {
+    const p = this.promptFor(id, s, r);
+    if (!p) {
+      if (!s.prompt) return s;
+      const out = { ...s };
+      delete out.prompt;
+      return out;
+    }
+    if (s.prompt && s.prompt.id === p.id && s.permission) return s;
+    return { ...s, prompt: p, permission: true };
+  }
+
+  /** Re-read the prompt and publish a status change if it differs. @param {string} id */
+  refreshPrompt(id) {
+    const s = this.status.get(id);
+    const r = this.rt.get(id);
+    if (!s || !r) return;
+    if (this.withPrompt(id, s, r) === s) return;
+    this.update(id, (st) => ({ status: { ...st, updatedAt: Date.now() } }));
+  }
+
+  /** Terminal output while the agent needs you: read the screen once the burst is parsed. @param {string} id @param {AgentTerminal} term */
+  schedulePromptRead(id, term) {
+    const s = this.status.get(id);
+    if (!s || s.state !== 'needs_you' || this.promptTimers.has(id)) return;
+    const t = setTimeout(() => {
+      this.promptTimers.delete(id);
+      if (this.terms.get(id) !== term || !term.running) return;
+      this.flushScreen(term).then(() => { if (this.terms.get(id) === term) this.refreshPrompt(id); });
+    }, PROMPT_READ_MS);
+    t.unref();
+    this.promptTimers.set(id, t);
+  }
+
+  /**
+   * Resolves true once the headless screen has parsed every byte received so far; false if it
+   * didn't within a moment (huge backlog, terminal gone).
+   * @param {AgentTerminal} term @returns {Promise<boolean>}
+   */
+  flushScreen(term) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => resolve(false), 1000);
+      t.unref();
+      try { term.screen.write('', () => { clearTimeout(t); resolve(true); }); } catch { clearTimeout(t); resolve(false); }
+    });
   }
 
   /** @param {AgentTerminal} term */
@@ -487,7 +566,7 @@ class Core extends EventEmitter {
       return;
     }
     this.terms.set(agent.id, term);
-    term.on('data', (data) => this.emit('output', agent.id, data));
+    term.on('data', (data) => { this.emit('output', agent.id, data); this.schedulePromptRead(agent.id, term); });
     term.on('exit', (code) => this.onExit(agent.id, term, code));
   }
 
@@ -607,26 +686,81 @@ class Core extends EventEmitter {
 
   /** Is a permission prompt on screen? Older Claude versions only send a Notification for it. */
   permissionPending(id) {
-    const s = this.status.get(id);
-    return Boolean(s && s.state === 'needs_you' && (s.permission || /permission/i.test(s.message || '')));
+    return Core.permissionStatus(/** @type {AgentStatus} */ (this.status.get(id)));
+  }
+
+  /**
+   * v2: the prompt the user answered (promptId) must still be the one on screen, read NOW; then
+   * act(prompt) presses the key. The check and act run in one synchronous step after the screen
+   * flush: nothing (another approve, a hook) can run in between.
+   * @template T @param {string} id @param {AgentTerminal} term @param {string} promptId
+   * @param {(p: import('./prompt').PermissionPrompt) => T} act @returns {Promise<T>}
+   */
+  async checkedPrompt(id, term, promptId, act) {
+    const flushed = await this.flushScreen(term);
+    if (this.terms.get(id) !== term || !term.running) throw new RpcError(ERRORS.NOT_RUNNING, `agent ${id} is not running`);
+    if (!flushed) throw new RpcError(ERRORS.PROMPT_CHANGED, 'the screen is still changing; check the prompt again');
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const p = this.promptFor(id, /** @type {AgentStatus} */ (this.status.get(id)), /** @type {Runtime} */ (this.rt.get(id)));
+    if (!p || p.id !== promptId) {
+      this.refreshPrompt(id); // let the app see what is there now
+      throw new RpcError(ERRORS.PROMPT_CHANGED, 'the prompt on screen is not the one you answered; check it again');
+    }
+    return act(p);
+  }
+
+  /** @param {any} params */
+  answerParams(params) {
+    if (!params || typeof params !== 'object') throw new RpcError(ERRORS.BAD_REQUEST, 'params required');
+    if (params.promptId !== undefined && params.promptId !== null && (typeof params.promptId !== 'string' || !params.promptId)) {
+      throw new RpcError(ERRORS.BAD_REQUEST, 'promptId must be a non-empty string');
+    }
+    return { id: params.id, promptId: typeof params.promptId === 'string' ? params.promptId : '' };
   }
 
   agentsApprove(params) {
-    const term = this.runningTerm(params && params.id);
-    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
-    term.write('1'); // "1. Yes" is always the first option
-    const now = Date.now();
-    this.update(params.id, (s, r) => ({ status: withState(s, 'working', {}, now), rt: { ...r, answeredAt: now } }));
-    return true;
+    const { id, promptId } = this.answerParams(params);
+    const choice = params.choice === undefined || params.choice === null ? 'allow' : params.choice;
+    if (!APPROVE_CHOICES.includes(choice)) throw new RpcError(ERRORS.BAD_REQUEST, `choice must be one of ${APPROVE_CHOICES.join(', ')}`);
+    const term = this.runningTerm(id);
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const answered = () => {
+      const now = Date.now();
+      this.update(id, (s, r) => ({ status: withState(s, 'working', {}, now), rt: { ...r, answeredAt: now } }));
+      return true;
+    };
+    if (!promptId) {
+      // v1: "1. Yes" is the first option. Anything else needs to know which prompt is on screen.
+      if (choice !== 'allow') throw new RpcError(ERRORS.BAD_REQUEST, `choice ${choice} needs promptId`);
+      term.write('1');
+      return answered();
+    }
+    return this.checkedPrompt(id, term, promptId, (p) => {
+      // By wording, never by position; no fallback to another option.
+      const opts = p.options.filter((o) => o.kind === choice);
+      if (opts.length !== 1) throw new RpcError(ERRORS.BAD_REQUEST, `this prompt has no ${choice === 'allow' ? '"Yes"' : '"don\'t ask again"'} option`);
+      term.rawWrite(opts[0].key); // now, ahead of anything queued: the screen was checked a moment ago
+      return answered();
+    });
   }
 
   agentsDeny(params) {
-    const term = this.runningTerm(params && params.id);
-    if (!this.permissionPending(params.id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
-    term.write('\x1b'); // Esc cancels; Claude then waits for instructions
-    const now = Date.now();
-    this.update(params.id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
-    return true;
+    const { id, promptId } = this.answerParams(params);
+    const term = this.runningTerm(id);
+    if (!this.permissionPending(id)) throw new RpcError(ERRORS.NO_PERMISSION_PENDING, 'no permission prompt is waiting');
+    const denied = () => {
+      const now = Date.now();
+      this.update(id, (s, r) => ({ status: withState(s, 'idle', { tool: '', detail: '' }, now), rt: { ...r, answeredAt: now } }));
+      return true;
+    };
+    if (!promptId) {
+      term.write('\x1b'); // Esc cancels; Claude then waits for instructions
+      return denied();
+    }
+    return this.checkedPrompt(id, term, promptId, () => {
+      term.rawWrite('\x1b');
+      return denied();
+    });
   }
 
   hello() { return { version: this.version, protocol: PROTOCOL_VERSION }; }

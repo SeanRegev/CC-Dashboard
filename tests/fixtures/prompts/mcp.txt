@@ -1,0 +1,12 @@
+● github - create_issue (MCP)(owner: "acme", repo: "app", title: "Login fails on Safari")
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Tool use
+
+   github - create_issue(owner: "acme", repo: "app", title: "Login fails on Safari") (MCP)
+   Create a new issue in a GitHub repository
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for github - create_issue commands in /home/user/app
+   3. No, and tell Claude what to do differently (esc)

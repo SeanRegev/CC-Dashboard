@@ -1,0 +1,11 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Retry policy
+
+ Which retry policy should the ETL job use?
+
+ ❯ 1. Exponential backoff
+      Waits longer after each failure
+   2. Fixed interval
+   3. Type something.
+
+ Enter to select · ↑/↓ to navigate · Esc to cancel
