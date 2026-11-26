@@ -105,7 +105,7 @@ function runLayouts(names) {
   let options = 0;
   let line = '';
   const draw = () => {
-    const text = fs.readFileSync(path.join(fixtures, `${names[index]}.txt`), 'utf8').replace(/\r?\n$/, '');
+    const text = fs.readFileSync(path.join(fixtures, `${names[index]}.txt`), 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
     options = text.split(/\r?\n/).filter((l) => /^[\s│]*(?:❯\s*)?\d+\.\s/.test(l)).length;
     process.stdout.write(`\x1b[2J\x1b[HFAKE CLAUDE READY\r\n${text.split(/\r?\n/).join('\r\n')}\r\n`);
     shown = true;

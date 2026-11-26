@@ -9,7 +9,8 @@ const path = require('path');
 const { parsePrompt, classify } = require('../../packages/core/src/prompt');
 
 const DIR = path.join(__dirname, '..', 'fixtures', 'prompts');
-const screen = (/** @type {string} */ name) => fs.readFileSync(path.join(DIR, `${name}.txt`), 'utf8');
+// .gitattributes keeps these LF; normalise anyway so a CRLF checkout can't change what the tests edit.
+const screen = (/** @type {string} */ name) => fs.readFileSync(path.join(DIR, `${name}.txt`), 'utf8').replace(/\r\n/g, '\n');
 const kinds = (/** @type {any} */ p) => p.options.map((/** @type {any} */ o) => `${o.key}:${o.kind}`);
 
 test('Bash, 4 options (Claude Code 2.1): "don\'t ask again" is option 2, auto mode is allow_other', () => {

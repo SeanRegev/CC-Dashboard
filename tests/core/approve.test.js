@@ -261,7 +261,7 @@ test('in-process: a screen that cannot be brought up to date is never answered',
   const keepAlive = setInterval(() => {}, 1000); // the real core's server keeps the loop alive
   t.after(() => { clearInterval(keepAlive); rmrf(home); });
   const core = new Core({ home, version: 'test', env: {} });
-  const screen = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'prompts', 'bash-4opt.txt'), 'utf8');
+  const screen = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'prompts', 'bash-4opt.txt'), 'utf8').replace(/\r\n/g, '\n');
   core.agents.set('a', /** @type {any} */ ({ id: 'a', spaceId: 's', name: 'a', cwd: home, sessionId: 'x', role: { id: 'main', label: 'Main', emoji: '' }, createdAt: 1 }));
   core.status.set('a', { ...newStatus('a'), state: 'needs_you', permission: true, message: 'Wants to use Bash' });
   core.rt.set('a', { ...newRuntime(), permAt: 5 });
