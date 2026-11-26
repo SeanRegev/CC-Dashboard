@@ -52,3 +52,5 @@
 }
 .menu-item:hover, .menu-item:focus-visible { background: var(--tint-3); outline: none; }
 .menu-sep { height: 1px; margin: 4px 6px; background: var(--line-soft); }
+.settings-modal .seg { white-space: nowrap; padding: 0 8px; }
+.settings-modal [data-name="notifications"] .seg[data-value="needs_you"] { flex: 2.4; }
