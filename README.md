@@ -30,6 +30,8 @@ demo projects, captured by [`scripts/readme-screenshots.js`](scripts/readme-scre
 - **Roles and a project grid (0.2).** Each agent wears a role tab, like 👑 Main or 🔧 Worker. Open a project as a grid of live terminals.
 - **Answer prompts where you see them (0.2).** Allow, Always or Deny from the sidebar, grid, board or Inbox, without opening the terminal.
 - **Board, Library and Dashboards (0.2).** A board of your agents by state, your plugins and skills in one place, and the dashboards your tools ship.
+- **Subagents and an activity log (0.3).** See each helper agent a session starts, with its title and what it is doing. A full log of what each session does, built without spending tokens.
+- **Sessions started outside the app (0.3).** Claude Code sessions from your terminal or editor show up as view-only tiles. **Take over** moves one into the app and keeps its conversation.
 - **Context and token use** per agent, and which model it runs.
 - **Nothing re-implemented.** It's Claude Code as you know it, with your settings, skills and `CLAUDE.md`. CC-Dashboard only adds its own hooks (to learn each agent's status) when it starts `claude`; your settings files are never edited.
 
@@ -145,6 +147,58 @@ Filter it to the current project or show all projects.
 
 ![The Dashboards view with CodeBurn, plugin dashboards and your own, each with an Open button](docs/images/dashboards.png)
 
+### Subagents and the activity log
+
+When Claude hands work to a helper agent (a subagent), the helper appears under its session with a title, such as
+"Find token call sites", and with what it is doing now.
+
+- Each grid tile shows a strip of the subagents that are running. The approval card says *asked by* the subagent
+  when one of its tools needs permission.
+- Open the **activity drawer** with `Ctrl+Shift+Y` (`Cmd+Shift+Y` on macOS), from **Activity** in an agent's menu,
+  or by clicking a subagent chip or the badge in the sidebar.
+- The drawer lists the **Session** first, then each subagent. Its type shows as an icon: 🔧 General, 🔭 Explore,
+  📐 Plan, 🤖 anything else. Its state is running, ✓ done, ✗ failed or ■ stopped.
+- Click a subagent to show only its lines. The feed updates live. **Load older** shows earlier lines.
+
+The log records what a session and its subagents do: prompts, each tool call with its command or file and how long
+it took, errors, permission prompts, and when each subagent starts and ends. It comes from Claude Code's hook
+events. Nothing is sent to a model to write it.
+
+Logs are kept in `<CC_HOME>/activity/` (on Windows, `%USERPROFILE%\.cc-dashboard\activity\`). They survive a
+restart. A log that grows past 2 MB is trimmed to its newest lines.
+
+Subagent tracking needs Claude Code 2.0.43 or newer. Subagents started by other subagents are shown flat, in the
+same list as the session's own subagents, not nested under their parent.
+
+![The grid with a subagent strip on a tile, and the activity drawer open on the right with the session and its subagents listed](docs/images/activity.png)
+
+### Sessions started outside the app
+
+Claude Code sessions that run on this computer but were not started in CC-Dashboard (in a terminal, VS Code or
+another editor) appear as view-only tiles under their project. A tile shows where the session runs, its state, the
+tool it is using and its recent activity. The app has no terminal for these sessions, so there is no typing and no
+Allow or Deny. **Activity** shows what they do.
+
+- In the sidebar, each project lists its outside sessions below its agents. Sessions outside every project are under
+  **Other folders**, where **Add as space** adds the folder as a project.
+
+**Take over** moves a session into the app:
+
+1. It ends the outside process. On Windows this uses `taskkill`.
+2. It reopens the same conversation in the same folder, with `claude --resume`, inside the app. The session is then
+   a normal agent with its own terminal.
+3. Its activity log carries over.
+
+Take over stops and refuses in these cases:
+
+- The session is busy. Take over then asks you to confirm with **End it and take over**. What it was doing stops.
+- The app cannot confirm that the process is that Claude session.
+- The conversation is open in more than one place.
+
+On Windows, the process checks have so far been tested only with stand-in processes.
+
+![An outside session tile in the grid, marked Outside and VS Code, next to the Take over dialog](docs/images/outside.png)
+
 ### Settings
 
 Press `Ctrl+,` (or use the ⋯ menu) for Settings. Changes apply at once.
@@ -175,6 +229,7 @@ On macOS use `Cmd` where it says `Ctrl`.
 | `Ctrl+Shift+A` | Inbox |
 | `Ctrl+Shift+L` | Library |
 | `Ctrl+Shift+D` | Dashboards |
+| `Ctrl+Shift+Y` | Activity drawer for the focused agent (`Cmd` on macOS) |
 | `Ctrl+,` | Settings |
 | `F2` | Rename the focused agent, or change its role |
 | `Esc` | Close a dialog |
@@ -201,6 +256,13 @@ All other keys go straight to Claude Code.
 | An agent stays on **needs you** with *"Claude is showing a screen that needs you"* | Open it: Claude is on a setup screen (trust this folder, sign in, update). Answer it in the terminal. |
 | "Core offline" at the bottom of the sidebar | The app restarts the core by itself. If it stays offline, look at `%USERPROFILE%\.cc-dashboard\core.log`. |
 | SmartScreen blocks the installer | Click **More info → Run anyway** (the build is not signed yet). |
+
+## FAQ
+
+### Does the activity log cost tokens?
+
+No. The log is built from Claude Code's hook events, and for outside sessions from Claude's own transcript files.
+CC-Dashboard never calls a model to write or read it.
 
 ## How it works
 
