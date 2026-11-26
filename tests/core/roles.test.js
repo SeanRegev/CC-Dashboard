@@ -111,7 +111,8 @@ test('agents.restart stops and resumes the same conversation', async (t) => {
   await waitFor(() => exits.length === 1, { what: 'the old process exits' });
   await core.waitStatus(a.id, (s) => s.running, 'running again');
   // Launched twice: first with --session-id, then with --resume or the same --session-id.
-  const runs = argvLog(core.home);
+  // (The fake claude writes its argv log just after it starts, so wait for the second line.)
+  const runs = await waitFor(() => { const r = argvLog(core.home); return r.length >= 2 ? r : null; }, { what: 'the second launch in argv.log' });
   assert.equal(runs.length, 2);
   const sid = runs[0][runs[0].indexOf('--session-id') + 1];
   assert.ok(runs[1].includes(sid), 'the restart uses the same session id');
