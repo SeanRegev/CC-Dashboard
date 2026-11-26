@@ -153,3 +153,17 @@ test('classify by wording, never by position', () => {
   ];
   for (const [label, kind] of cases) assert.equal(classify(label), kind, label);
 });
+
+test('a scrolled prompt: "↑ N more lines" under the options still parses; with the tool header scrolled off it is refused', () => {
+  const full = screen('bash-4opt');
+  const scrolled = full.replace(' Esc to cancel · Tab to amend', ' ↑ 7 more lines\n Esc to cancel · Tab to amend');
+  assert.notEqual(scrolled, full);
+  const p = parsePrompt(scrolled);
+  assert.ok(p);
+  assert.deepEqual(kinds(p), ['1:allow', '2:allow_always', '3:allow_other', '4:deny']);
+  // A short grid tile: the "Bash command" header is no longer on screen. The parser won't guess the tool.
+  const lines = scrolled.split('\n');
+  const header = lines.findIndex((l) => /^\s*Bash command\s*$/.test(l));
+  assert.ok(header >= 0);
+  assert.equal(parsePrompt(lines.slice(header + 1).join('\n')), null);
+});
