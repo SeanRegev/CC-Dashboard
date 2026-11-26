@@ -12,8 +12,13 @@ contextBridge.exposeInMainWorld('cc', {
   /** @returns {Promise<{port:number, token:string}>} */
   getConnection: () => ipcRenderer.invoke('cc:getConnection'),
   /** Native notification; clicking it focuses the window and selects the agent. */
-  notify: (/** @type {string} */ title, /** @type {string} */ body, /** @type {string|undefined} */ agentId) =>
-    ipcRenderer.invoke('cc:notify', { title: String(title || ''), body: String(body || ''), agentId: agentId ? String(agentId) : undefined }),
+  notify: (/** @type {string} */ title, /** @type {string} */ body, /** @type {string|undefined} */ agentId, /** @type {{kind?: string, silent?: boolean}|undefined} */ extra) =>
+    ipcRenderer.invoke('cc:notify', {
+      title: String(title || ''), body: String(body || ''), agentId: agentId ? String(agentId) : undefined,
+      kind: extra && typeof extra.kind === 'string' ? extra.kind : undefined, silent: !!(extra && extra.silent),
+    }),
+  /** @returns {Promise<string>} the app's version */
+  getVersion: () => ipcRenderer.invoke('cc:getVersion'),
   /** @returns {Promise<string|null>} folder path, or null when cancelled */
   pickFolder: () => ipcRenderer.invoke('cc:pickFolder'),
   /** @param {(agentId:string) => void} fn */

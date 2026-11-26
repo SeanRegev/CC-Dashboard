@@ -161,7 +161,9 @@ function notificationFor(msg) {
   const agentId = msg && typeof msg.agentId === 'string' ? msg.agentId : null;
   const kind = msg && ['needs_you', 'done', 'exited', 'info'].includes(msg.kind) ? msg.kind : 'info';
   /** @type {Record<string, any>} */
-  const options = { title, body, silent: false };
+  // The app plays its own chime when Settings → Sound is on, so the renderer asks for silent notifications;
+  // otherwise Sound off would still beep, and Sound on would beep twice.
+  const options = { title, body, silent: msg && msg.silent === true };
   if (kind === 'needs_you') { options.urgency = 'critical'; options.timeoutType = 'never'; }
   else if (kind === 'done') options.urgency = 'normal';
   else options.urgency = 'low';

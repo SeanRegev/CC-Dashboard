@@ -237,12 +237,15 @@ export function openSettingsDialog(ctx) {
         h('label', { class: 'check' }, sound, h('span', null, 'Play a sound with notifications'))),
       h('section', { class: 'set-section' }, h('h3', { class: 'set-title' }, 'About'),
         h('div', { class: 'about', id: 'set-about' },
-          h('div', null, h('strong', null, 'CC-Dashboard'), st.version ? ` · core v${String(st.version).replace(/^v/, '')}` : ''),
+          h('div', null, h('strong', null, 'CC-Dashboard'), h('span', { id: 'set-app-version' }, ''), st.version ? ` · core v${String(st.version).replace(/^v/, '')}` : ''),
           h('div', { class: 'muted' }, `Core: ${conn} · ${running} running agent${running === 1 ? '' : 's'}`)),
         h('div', { class: 'quit-row' }, quitBtn,
           h('span', { class: 'hint' }, 'Closing the window keeps agents running in the background. This stops them too.')))),
     h('div', { class: 'modal-foot' }, h('button', { type: 'button', class: 'btn', id: 'set-close', onclick: () => closeModal() }, 'Done')));
   openModal('settings', card, { onClose: () => { clearTimeout(saveTimer); } });
+  if (ctx.bridge && typeof ctx.bridge.getVersion === 'function') {
+    ctx.bridge.getVersion().then((/** @type {string} */ v) => { const el = card.querySelector('#set-app-version'); if (el && v) el.textContent = ` v${v}`; }).catch(() => {});
+  }
   /** @type {HTMLElement} */ (theme.querySelector('.seg.on') || card).focus();
 }
 

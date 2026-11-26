@@ -117,6 +117,7 @@ function focusWindow() {
 }
 
 ipcMain.handle('cc:getConnection', () => getConnection());
+ipcMain.handle('cc:getVersion', () => app.getVersion());
 
 ipcMain.handle('cc:pickFolder', async () => {
   const opts = /** @type {Electron.OpenDialogOptions} */ ({ title: 'Add a space', properties: ['openDirectory', 'createDirectory'] });

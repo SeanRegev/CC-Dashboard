@@ -171,7 +171,7 @@ client.on('notify', (/** @type {any} */ n) => {
   // Don't ping about an agent you are looking at right now.
   if (n.agentId && document.hasFocus() && visibleIds().has(n.agentId)) return;
   if (!prepareNotification(n)) return; // Settings → Notifications / Sound
-  bridge.notify(n.title || 'CC-Dashboard', n.body || '', n.agentId);
+  bridge.notify(n.title || 'CC-Dashboard', n.body || '', n.agentId, { kind: n.kind, silent: true }); // sound: Settings' chime
 });
 bridge.onSelectAgent((id) => { if (S.entries.has(id)) openAgent(id); });
 

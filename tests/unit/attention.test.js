@@ -93,6 +93,9 @@ test('notifications: kind sets urgency; needs_you stays until dealt with; unknow
   assert.equal(needs.agentId, 'a');
   assert.equal(needs.kind, 'needs_you');
   assert.deepEqual(needs.options, { title: 'a needs you', body: 'Wants to use Bash', silent: false, urgency: 'critical', timeoutType: 'never' });
+  // The renderer plays its own chime (Settings → Sound), so it asks for silent OS notifications.
+  assert.equal(notificationFor({ title: 't', kind: 'needs_you', silent: true }).options.silent, true);
+  assert.equal(notificationFor({ title: 't', silent: 'yes' }).options.silent, false, 'only a real true silences');
   assert.equal(notificationFor({ title: 't', kind: 'done' }).options.urgency, 'normal');
   const odd = notificationFor({ title: 'x'.repeat(300), kind: 'weird', agentId: 5 });
   assert.equal(odd.kind, 'info');
