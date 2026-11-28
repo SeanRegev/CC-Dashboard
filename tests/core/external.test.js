@@ -1,6 +1,6 @@
 'use strict';
 // Outside sessions end to end: a real core process, a temp CLAUDE_CONFIG_DIR with running-session
-// files written by live child processes (tests/fake-claude-registry.js), fixture transcripts, and
+// files written by live child processes (tests/fake-claude-registry/claude.js), fixture transcripts, and
 // takeOver resuming the conversation with tests/fake-claude.js (via the argv-logging wrapper).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,7 +10,7 @@ const path = require('path');
 const { startCore, claudeCmd, waitFor, argvLog, FIXTURES, REPO } = require('./helpers');
 const { projectDirName } = require('../../packages/core/src/transcript');
 
-const FAKE_REG = path.join(REPO, 'tests', 'fake-claude-registry.js');
+const FAKE_REG = path.join(REPO, 'tests', 'fake-claude-registry', 'claude.js');
 const SESSIONS = path.join(REPO, 'tests', 'fixtures', 'sessions');
 const WRAPPED = claudeCmd(path.join(FIXTURES, 'wrapped-claude.js'));
 // Take over reads the process with PowerShell on Windows, which can be slow to start: give it what the app gives it.
