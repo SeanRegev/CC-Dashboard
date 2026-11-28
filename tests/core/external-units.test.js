@@ -353,3 +353,53 @@ test('takeOver refuses a conversation that is open in two places, and signals no
   const agent = await ext.takeOver({ id: 'ext:sess-1' });
   assert.equal(agent.id, 'adopted');
 });
+
+test('a finished subagent whose files did not change is not read again; running ones keep tailing; a change wakes it', () => {
+  const { newParseState } = require('../../packages/core/src/transcript');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-sub-'));
+  const realOpen = fs.openSync;
+  const realRead = fs.readFileSync;
+  /** @type {string[]} */
+  const reads = [];
+  try {
+    const jsonl = path.join(dir, 'agent-s1.jsonl');
+    const meta = path.join(dir, 'agent-s1.meta.json');
+    fs.writeFileSync(jsonl, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'go' } }) + '\n');
+    fs.writeFileSync(meta, JSON.stringify({ agentType: 'Explore', description: 'Look around' }));
+    const ext = new X.External(/** @type {any} */ ({}), { sys: {} });
+    const rec = /** @type {any} */ ({ id: 'ext:x', subs: new Map(), st: newParseState() });
+    // @ts-ignore counting wrappers
+    fs.openSync = (/** @type {any} */ f, ...a) => { reads.push(String(f)); return realOpen(f, ...a); };
+    // @ts-ignore
+    fs.readFileSync = (/** @type {any} */ f, ...a) => { reads.push(String(f)); return realRead(f, ...a); };
+    const tail = () => ext.tailSubagent(rec, dir, 's1', [], Date.now());
+    assert.ok(tail(), 'first read announces it');
+    assert.ok(reads.some((f) => f === jsonl) && reads.some((f) => f === meta));
+    // Still running and unchanged: it is still tailed (the file is opened), nothing changes.
+    reads.length = 0;
+    assert.equal(tail(), null);
+    assert.ok(reads.includes(jsonl), 'a running subagent is tailed');
+    // Finish it (a task notification would do the same), then nothing is read at all.
+    rec.subs.get('s1').sub.state = 'done';
+    assert.equal(tail(), null);
+    reads.length = 0;
+    for (let i = 0; i < 3; i++) assert.equal(tail(), null);
+    assert.deepEqual(reads, [], 'no open, no meta read for a finished subagent');
+    // New output wakes it up.
+    fs.appendFileSync(jsonl, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:05Z', message: { role: 'user', content: 'more' } }) + '\n');
+    tail();
+    assert.ok(reads.includes(jsonl), 'a changed file is read again');
+    reads.length = 0;
+    tail();
+    assert.deepEqual(reads, []);
+    // A running subagent does not re-read an unchanged meta.json.
+    rec.subs.get('s1').sub.state = 'running';
+    reads.length = 0;
+    tail();
+    assert.ok(!reads.includes(meta), 'unchanged meta.json is not re-read');
+  } finally {
+    fs.openSync = realOpen;
+    fs.readFileSync = realRead;
+    rmrf(dir);
+  }
+});

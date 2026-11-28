@@ -39,7 +39,7 @@ const SCAN_TRANSCRIPT_MS = 10_000;
  *   taskkill: (pid: number) => Promise<void>,
  * }} Sys
  * @typedef {{sub: Subagent, tail: TranscriptTail|null, st: import('./transcript').ParseState, metaFile: string,
- *            metaMtime: number, meta: ReturnType<typeof parseMeta>, announced: boolean}} SubRec
+ *            metaMtime: number, metaKey: string, sig: string, meta: ReturnType<typeof parseMeta>, announced: boolean}} SubRec
  * @typedef {{id: string, file: string, reg: Registry, transcript: string, lastFind: number, tail: TranscriptTail|null,
  *            st: import('./transcript').ParseState, log: ActivityEntry[], seq: number, subs: Map<string, SubRec>,
  *            notesSeen: number}} Rec
@@ -566,17 +566,26 @@ class External {
     let sr = rec.subs.get(sid);
     let changed = false;
     let metaMtime = 0;
-    try { metaMtime = fs.statSync(metaFile).mtimeMs; } catch { metaMtime = 0; }
+    let metaKey = '';
+    try { const st = fs.statSync(metaFile); metaMtime = st.mtimeMs; metaKey = `${st.size}:${st.mtimeMs}`; } catch { metaMtime = 0; }
+    let jsonlKey = '';
+    try { const st = fs.statSync(jsonl); jsonlKey = `${st.size}:${st.mtimeMs}`; } catch { /* not there yet */ }
+    const sig = `${metaKey}|${jsonlKey}`;
+    // A finished subagent whose two files have not changed (size, mtime) is not read again.
+    const known = rec.subs.get(sid);
+    if (known && known.sub.state !== 'running' && known.sig === sig) return null;
     if (!sr) {
       sr = {
         sub: { id: sid, agentId: rec.id, title: '', type: '', state: 'running', background: false, counts: { tools: 0, errors: 0 }, startedAt: 0, updatedAt: now },
-        tail: new TranscriptTail(jsonl), st: newParseState(), metaFile, metaMtime: -1, meta: null, announced: false,
+        tail: new TranscriptTail(jsonl), st: newParseState(), metaFile, metaMtime: -1, metaKey: '\0', sig: '', meta: null, announced: false,
       };
       rec.subs.set(sid, sr);
       changed = true;
     }
     const sub = sr.sub;
-    if (metaMtime !== sr.metaMtime) {
+    sr.sig = sig;
+    if (metaKey !== sr.metaKey) {
+      sr.metaKey = metaKey;
       sr.metaMtime = metaMtime;
       let meta = null;
       try { meta = parseMeta(JSON.parse(fs.readFileSync(metaFile, 'utf8'))); } catch { meta = null; }
