@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0
+
+- **Exact context %.** The context number now comes from Claude's own status line, not from a guess. A session with a
+  1M window used to show about five times too high (10% showed as 49%), because the app assumed a 200k window.
+- **Context text.** The gauge reads "98k / 1M (10%)": the context used, the window, and the percentage. A transcript
+  estimate is marked with "~". The old "75k tokens" item is gone.
+- **Usage meter** in the top bar: "5h 62% · resets 16:20 / week 31%". It is amber at 75% and red at 90%. The tooltip
+  says when it was read and which agent reported it. If the reset time has passed, it says so instead of showing an
+  old number.
+- **Usage view** (Ctrl+Shift+U): cost and tokens per agent, per space and per day. It is labelled "API-equivalent
+  estimate": on a subscription it is not a bill. Removed agents keep their saved name.
+- **New agent warning.** The New agent dialog warns when the 5-hour limit is at 90% or more.
+- **Subagent cards.** Each subagent shows its title, its type, its state, its current tool and its model. They appear
+  as indented cards under the session in the sidebar (collapsible, finished ones fold into "✓ N done"), as a row
+  under each grid tile (replacing the strip of chips), and as a bar in the Terminals view. A click opens the activity
+  drawer for that subagent.
+- **Your own status line keeps working.** The app registers its own status line for each agent. It runs the status
+  line you already have (from your settings files), so you still see it inside agents. Without one, the app shows a
+  short default line.
+- **Allow and Deny when the prompt header has scrolled away.** In a short grid tile the app now reads the permission
+  request from Claude's hook and still offers Allow and Deny. The check that the prompt has not changed still applies.
+- **Stricter Take over check.** A `node` or `bun` process counts as Claude only when it runs Claude's own script. A
+  program that only has "claude" in its command line does not.
+- **Lighter tailing of outside sessions.** Finished subagents are not read again while their files stay the same.
+- **Indexer trial.** Measured on a sample repo with Haiku: a code index (codegraph) made code questions about twice as
+  fast, with the same answers, but cost the same. Adopt it later as an opt-in item; do not build our own now. See
+  [docs/INDEXER.md](docs/INDEXER.md).
+
 ## 0.3.0
 
 - **Subagents.** Each helper agent a session starts (Claude's Agent or Task tool) shows under its session with a
