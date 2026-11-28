@@ -167,3 +167,41 @@ test('a scrolled prompt: "↑ N more lines" under the options still parses; with
   assert.ok(header >= 0);
   assert.equal(parsePrompt(lines.slice(header + 1).join('\n')), null);
 });
+
+test('header scrolled off: the hook payload supplies tool and detail, but only when the question fits the tool', () => {
+  const fb = { tool: 'Bash', detail: 'npm test' };
+  const p = parsePrompt(screen('bash-headerless'), { fallback: fb });
+  assert.ok(p);
+  assert.equal(p.tool, 'Bash');
+  assert.equal(p.detail, 'npm test');
+  assert.deepEqual(kinds(p), ['1:allow', '2:allow_always', '3:deny']);
+  // No hook payload: still refused.
+  assert.equal(parsePrompt(screen('bash-headerless')), null);
+  // A different tool on the hook: the question must be that tool's own question.
+  assert.equal(parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Edit', detail: 'a.js' } }), null);
+  assert.equal(parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Bash', detail: '' } }), null);
+  const e = parsePrompt(screen('edit-headerless'), { fallback: { tool: 'Edit', detail: 'src/app.js' } });
+  assert.ok(e);
+  assert.equal(e.tool, 'Edit');
+  assert.equal(e.question, 'Do you want to make this edit to app.js?');
+  assert.equal(parsePrompt(screen('edit-headerless'), { fallback: fb }), null);
+  // MCP tools ask "Do you want to proceed?".
+  const m = parsePrompt(screen('bash-headerless'), { fallback: { tool: 'mcp__github__create_issue', detail: 'x' } });
+  assert.ok(m);
+  assert.equal(m.tool, 'mcp__github__create_issue');
+});
+
+test('header scrolled off: the fingerprint changes with the hook payload, the options and the salt; a visible header wins', () => {
+  const a = parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Bash', detail: 'npm test' }, salt: 's' });
+  const b = parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Bash', detail: 'rm -rf x' }, salt: 's' });
+  const c = parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Bash', detail: 'npm test' }, salt: 't' });
+  const d = parsePrompt(screen('bash-headerless').replace('npm test *', 'npm run *'), { fallback: { tool: 'Bash', detail: 'npm test' }, salt: 's' });
+  assert.ok(a && b && c && d);
+  assert.equal(new Set([a.id, b.id, c.id, d.id]).size, 4);
+  assert.equal(parsePrompt(screen('bash-headerless'), { fallback: { tool: 'Bash', detail: 'npm test' }, salt: 's' }).id, a.id);
+  // The real header on screen is used, not the hook.
+  const full = parsePrompt(screen('bash-4opt'), { fallback: { tool: 'Edit', detail: 'ignored' } });
+  assert.ok(full);
+  assert.equal(full.tool, 'Bash');
+  assert.equal(full.detail, 'npm test 2>&1 | tail -80');
+});

@@ -127,10 +127,23 @@ function detailOf(kind, body, q) {
 }
 
 /**
+ * Does the on-screen question fit the tool the hook named? A known tool must ask its own question;
+ * any other tool (MCP, ...) asks "Do you want to proceed?".
+ * @param {string} tool @param {string} question
+ */
+function fallbackFits(tool, question) {
+  const h = HEADERS.find((x) => x.tool && x.tool === tool);
+  if (h) return h.question.test(question);
+  return /^Do you want to proceed\?$/i.test(question);
+}
+
+/**
  * Parse the permission prompt at the bottom of the screen.
  * @param {string} screen   the visible screen text, lines separated by "\n"
- * @param {{salt?: string}} [opts]  salt: mixed into the fingerprint (the core passes agent id + when the
- *   PermissionRequest arrived, so an identical prompt asked again, or by another agent, gets another id)
+ * @param {{salt?: string, fallback?: {tool: string, detail: string}}} [opts]  salt: mixed into the
+ *   fingerprint (the core passes agent id + when the PermissionRequest arrived, so an identical prompt
+ *   asked again, or by another agent, gets another id). fallback: tool and detail from the last
+ *   PermissionRequest hook, used only when the options and question are on screen but the header is not.
  * @returns {PermissionPrompt|null}
  */
 function parsePrompt(screen, opts = {}) {
@@ -197,15 +210,27 @@ function parsePrompt(screen, opts = {}) {
     header = HEADERS.find((x) => x.re.test(s));
     if (header) { hi = i; break; }
   }
-  if (!header || hi < 0) return null;
-  const q = header.question.exec(question);
-  if (!q) return null;
-
-  // 5. Tool and detail.
-  const d = detailOf(header.detail, lines.slice(hi + 1, qStart), q);
-  if (!d) return null;
-  const tool = d.tool || header.tool;
-  if (!tool) return null;
+  /** @type {string} */
+  let tool;
+  /** @type {{detail: string}} */
+  let d;
+  if (header && hi >= 0) {
+    const q = header.question.exec(question);
+    if (!q) return null;
+    // 5. Tool and detail.
+    const got = detailOf(header.detail, lines.slice(hi + 1, qStart), q);
+    if (!got) return null;
+    d = got;
+    tool = got.tool || header.tool;
+    if (!tool) return null;
+  } else {
+    // The header scrolled off (a short tile): only the hook's payload can say what is asked.
+    const fb = opts.fallback;
+    if (!fb || !fb.tool || !fb.detail || !fallbackFits(fb.tool, question)) return null;
+    hi = qStart; // the fingerprinted region starts at the question
+    tool = fb.tool;
+    d = { detail: fb.detail };
+  }
 
   // 6. Options, classified by wording. Exactly one plain "Yes", at most one "don't ask again", a "No".
   /** @type {PromptOption[]} */
@@ -220,7 +245,9 @@ function parsePrompt(screen, opts = {}) {
     if (!s) continue;
     region.push(optionOf(s) ? s.replace(CURSOR_RE, '') : s);
   }
-  const hash = crypto.createHash('sha256').update(`${opts.salt || ''}\n${region.join('\n')}`).digest('hex');
+  // A prompt read without its header is also fingerprinted by what the hook said it was.
+  const fbKey = header ? '' : `\n${tool}\n${d.detail}`;
+  const hash = crypto.createHash('sha256').update(`${opts.salt || ''}\n${region.join('\n')}${fbKey}`).digest('hex');
   return { id: `p-${hash.slice(0, 24)}`, tool, detail: d.detail.slice(0, 2000), question, options };
 }
 

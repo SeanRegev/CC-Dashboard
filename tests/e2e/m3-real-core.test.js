@@ -2,7 +2,7 @@
 'use strict';
 /**
  * M3 against the REAL core (the other M3 e2e files use the mock core): fake Claude with subagents, a live fake
- * outside session (tests/fake-claude-registry.js) and the Electron app on top. Temp CC_HOME and CLAUDE_CONFIG_DIR.
+ * outside session (tests/fake-claude-registry/claude.js) and the Electron app on top. Temp CC_HOME and CLAUDE_CONFIG_DIR.
  * Linux CI: xvfb-run -a npm run test:e2e
  */
 const test = require('node:test');
@@ -15,7 +15,7 @@ const { launchApp } = require('../../packages/app/src/renderer/dev/cdp.js');
 const { projectDirName } = require('../../packages/core/src/transcript.js');
 
 const skip = h.missingPieces();
-const REGISTRY = path.join(h.REPO, 'tests', 'fake-claude-registry.js');
+const REGISTRY = path.join(h.REPO, 'tests', 'fake-claude-registry', 'claude.js');
 const q = (/** @type {string} */ s) => JSON.stringify(s);
 
 /** Core + app + rpc on one temp home; cleaned up by t.after. */

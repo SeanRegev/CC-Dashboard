@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Stand-in for a Claude Code session started OUTSIDE CC-Dashboard (tests of the outside sessions).
 // It stays alive and writes its running-session file <CLAUDE_CONFIG_DIR>/sessions/<pid>.json like
-// real Claude does (sample: tests/fixtures/sessions/registry-sample.json). Its path contains "claude",
-// so the core's process check accepts it, like a real `node .../claude-code/cli.js`.
+// real Claude does (sample: tests/fixtures/sessions/registry-sample.json). It is named claude.js,
+// so the core's process check accepts it (the script name counts, "claude" elsewhere in the path does not).
 //
-//   node tests/fake-claude-registry.js --session <id> --cwd <dir> [--status busy|idle|...] [--name <n>]
+//   node tests/fake-claude-registry/claude.js --session <id> --cwd <dir> [--status busy|idle|...] [--name <n>]
 //        [--entrypoint cli|vscode|...] [--ignore-term] [--keep-file] [--proc-start <s>]
 //
 // Refuses to run without CLAUDE_CONFIG_DIR (tests must never touch the real ~/.claude).

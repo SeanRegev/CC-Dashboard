@@ -143,7 +143,10 @@ test('an unreadable prompt: permission without status.prompt; promptIds are refu
   await core.waitStatus(ambiguous.id, (x) => x.state === 'needs_you' && x.permission === true, 'permission');
   await screenHas(core, ambiguous, 'rm -rf build');
   await new Promise((r) => setTimeout(r, 300)); // several ticks and screen reads
-  for (const a of [old, ambiguous]) {
+  // The old dialog has no header but a clean question: the hook payload (Bash) now fills it in.
+  const oldStatus = await core.status(old.id);
+  assert.equal(oldStatus.prompt && oldStatus.prompt.tool, 'Bash');
+  for (const a of [ambiguous]) {
     const s = await core.status(a.id);
     assert.equal(s.permission, true);
     assert.equal(s.prompt, undefined, a.name);
@@ -280,4 +283,20 @@ test('in-process: a screen that cannot be brought up to date is never answered',
   assert.equal(core.status.get('a')?.state, 'working');
   assert.equal(core.status.get('a')?.prompt, undefined);
   core.shutdown();
+});
+
+test('header scrolled off the tile: tool and detail come from the PermissionRequest hook; a changed screen is still refused', async (t) => {
+  const core = await startCore();
+  t.after(() => core.dispose());
+  const { agent, s, prompt } = await promptAgent(core, 'bash-headerless,edit-headerless');
+  assert.equal(prompt.tool, 'Bash');
+  assert.equal(prompt.detail, 'npm test');
+  assert.equal(s.tool, 'Bash');
+  await core.client.call('agents.input', { id: agent.id, data: '~' });
+  await screenHas(core, agent, 'Do you want to make this edit to app.js?');
+  await assert.rejects(core.client.call('agents.approve', { id: agent.id, promptId: prompt.id }), { code: 'prompt_changed' });
+  const s2 = await core.waitStatus(agent.id, (x) => x.prompt && x.prompt.id !== prompt.id, 'new headerless prompt');
+  assert.equal(s2.prompt.tool, 'Edit');
+  assert.equal(await core.client.call('agents.approve', { id: agent.id, promptId: s2.prompt.id }), true);
+  await screenHas(core, agent, 'CHOSE: 1');
 });
