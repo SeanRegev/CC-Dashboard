@@ -238,7 +238,7 @@ class Core extends EventEmitter {
       const out = applyEvent(s, r, event, payload, Date.now(), ctx);
       out.rt.stuck = false;
       if (event === 'Stop') out.rt.turnStartedAt = 0;
-      const u = out.rt.transcriptPath ? this.usage.read(out.rt.transcriptPath) : null;
+      const u = out.rt.transcriptPath ? this.readUsage(id, out.rt.transcriptPath) : null;
       if (u) out.status.usage = u;
       // Keep the turn start for alert(), which reads it from the "before" runtime.
       return out;
@@ -283,7 +283,7 @@ class Core extends EventEmitter {
         const subs = this.activity.onPromptGone(id);
         this.update(id, (st, rt) => ({ status: restingStatus(st, subs, now), rt: { ...rt, answeredAt: now, turnStartedAt: 0 } }));
       } else if (scanUsage && r.transcriptPath && s.state === 'working') {
-        const u = this.usage.read(r.transcriptPath);
+        const u = this.readUsage(id, r.transcriptPath);
         if (u && JSON.stringify(u) !== JSON.stringify(s.usage)) {
           this.update(id, (st) => ({ status: { ...st, usage: u, updatedAt: now } }));
         }
@@ -601,7 +601,8 @@ class Core extends EventEmitter {
       : fs.existsSync(defaultTranscriptPath(agent.cwd, agent.sessionId, this.env)) ? defaultTranscriptPath(agent.cwd, agent.sessionId, this.env) : '';
     // Resume only with a transcript; otherwise (e.g. closed on a setup screen) start fresh with the same id and resend the task.
     const resume = opts.resume && Boolean(transcript);
-    const args = claudeArgs(agent, { resume, settingsPath: this.settingsPath, prompt: resume ? '' : agent.prompt });
+    const sl = this.statusLineLaunch(agent);
+    const args = claudeArgs(agent, { resume, settingsPath: sl.settingsPath, prompt: resume ? '' : agent.prompt });
     const now = Date.now();
     this.userStopped.delete(agent.id);
     this.update(agent.id, (s, rt) => ({
@@ -615,7 +616,7 @@ class Core extends EventEmitter {
       let sb = this.scrollbacks.get(agent.id);
       if (!sb) { sb = new Scrollback(); this.scrollbacks.set(agent.id, sb); }
       const size = this.sizes.get(agent.id) || { cols: 120, rows: 32 };
-      term = new AgentTerminal({ file: spec.file, args: spec.args, cwd: agent.cwd, env: this.agentEnv(agent), scrollback: sb, ...size });
+      term = new AgentTerminal({ file: spec.file, args: spec.args, cwd: agent.cwd, env: this.agentEnv(agent, sl.env), scrollback: sb, ...size });
     } catch (e) {
       const msg = `Could not start Claude: ${/** @type {Error} */ (e).message}`;
       this.update(agent.id, (s) => ({ status: withState(s, 'exited', { detail: msg }) }));
@@ -627,8 +628,27 @@ class Core extends EventEmitter {
     term.on('exit', (code) => this.onExit(agent.id, term, code));
   }
 
-  /** @param {Agent} agent */
-  agentEnv(agent) {
+  /**
+   * v4 (track A): the settings file for this agent (ours, with the user's status-line display options) and
+   * the env the status-line relay needs to run the user's own status line. Never stops a launch.
+   * @param {Agent} agent @returns {{settingsPath: string, env: Record<string, string>}}
+   */
+  statusLineLaunch(agent) {
+    try { return this.statusline.prepare(agent, this.env); } catch { return { settingsPath: this.settingsPath, env: {} }; }
+  }
+
+  /**
+   * v4 (track A): an agent's usage from its transcript, with what its status line reported folded in.
+   * @param {string} id @param {string} file @returns {AgentStatus['usage']|null}
+   */
+  readUsage(id, file) {
+    const u = this.usage.read(file, { windowFor: (model) => this.statusline.windowFor(id, model) });
+    if (!u) return null;
+    try { return this.statusline.merge(id, u); } catch { return u; }
+  }
+
+  /** @param {Agent} agent @param {Record<string, string>} [extra] (v4) the status-line relay's env */
+  agentEnv(agent, extra = {}) {
     /** @type {NodeJS.ProcessEnv} */
     const env = { ...this.env };
     // Started from inside a Claude Code session (e.g. the app opened from a Claude Code terminal):
@@ -642,6 +662,10 @@ class Core extends EventEmitter {
     env.CC_AGENT_ID = agent.id;
     env.CC_CORE_URL = this.coreUrl;
     env.CC_TOKEN = this.token;
+    // v4: what the status-line relay runs for the user; never inherited from whoever started the core.
+    delete env.CC_STATUSLINE;
+    delete env.CC_STATUSLINE_DEPTH;
+    Object.assign(env, extra);
     return env;
   }
 
