@@ -71,6 +71,33 @@ test('process identity: tasklist CSV, /proc stat, what looks like Claude', () =>
   assert.ok(!X.looksLikeClaude(null));
 });
 
+test('looksLikeClaude: node / bun count only when they run Claude\'s script (win32, linux, macOS)', () => {
+  // win32: image from tasklist, command line from PowerShell.
+  const win = (/** @type {string} */ command) => ({ image: 'node.exe', command });
+  assert.ok(X.looksLikeClaude(win('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js" --resume')));
+  assert.ok(X.looksLikeClaude(win('node.exe C:\\tools\\claude.js')));
+  assert.ok(X.looksLikeClaude({ image: 'bun.exe', command: 'bun.exe run C:\\tools\\CLAUDE.cmd' }));
+  assert.ok(X.looksLikeClaude(win('node.exe --require C:\\hook.js C:\\Users\\me\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\notes\\my-claude-notes.js')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\claude-notes\\server.js --claude')));
+  assert.ok(!X.looksLikeClaude(win('node.exe -e "console.log(\'claude\')"')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\proj\\cli.js')), 'cli.js alone, outside the Claude package, is not Claude');
+  // linux: full argv from /proc/<pid>/cmdline.
+  const lin = (/** @type {string[]} */ argv) => ({ argv, command: argv.join(' ') });
+  assert.ok(X.looksLikeClaude(lin(['node', '/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js'])));
+  assert.ok(X.looksLikeClaude(lin(['/usr/bin/bun', '/home/me/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js', '-c'])));
+  assert.ok(X.looksLikeClaude(lin(['node', '--max-old-space-size=4096', '/usr/local/bin/claude'])));
+  assert.ok(!X.looksLikeClaude(lin(['node', '/home/me/my-claude-notes.js'])));
+  assert.ok(!X.looksLikeClaude(lin(['node', 'server.js', '/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js'])), 'only the script counts, not later arguments');
+  assert.ok(!X.looksLikeClaude(lin(['/usr/bin/claude-notes', '--watch'])));
+  // macOS: ps gives the command name (comm) and the whole command line.
+  const mac = (/** @type {string} */ comm, /** @type {string} */ command) => ({ argv: [comm], command });
+  assert.ok(X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js')));
+  assert.ok(X.looksLikeClaude(mac('/Users/me/.local/bin/claude', '/Users/me/.local/bin/claude --resume')));
+  assert.ok(!X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node /Users/me/my-claude-notes.js')));
+  assert.ok(!X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node')));
+});
+
 test('confirmIdentity: start time must match on Linux, and the process may not start after the session', () => {
   const reg = X.parseRegistry({ pid: 7, sessionId: 's', cwd: '/x', procStart: '152', startedAt: 1_000_000 });
   const claude = { argv: ['/opt/claude-code/bin/claude'], command: '/opt/claude-code/bin/claude' };

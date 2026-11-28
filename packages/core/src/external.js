@@ -136,14 +136,57 @@ function parseProcStat(text) {
   return v && /^\d+$/.test(v) ? v : '';
 }
 
-/** Does the process look like Claude Code (the native binary, or node / bun running Claude)? @param {ProcInfo|null} info */
+/** Split a command line into words: double or single quotes group, backslashes stay (Windows paths). @param {string} cmd */
+function splitCommand(cmd) {
+  /** @type {string[]} */
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(String(cmd || '')))) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+/** Node options that take the next word as their value. */
+const NODE_VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '--inspect-port', '--title']);
+
+/**
+ * The script a node / bun process runs: its first word that is not an option (or an option's value).
+ * null for `node -e ...` and for no script.
+ * @param {string[]} words words after the executable @returns {string|null}
+ */
+function scriptOf(words) {
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (/^(-e|-p|--eval|--print)$/.test(w)) return null;
+    if (NODE_VALUE_FLAGS.has(w)) { i++; continue; }
+    if (w === 'run' && i === 0) continue; // bun run <script>
+    if (w.startsWith('-')) continue;
+    return w;
+  }
+  return null;
+}
+
+/** Is this script Claude's: inside the @anthropic-ai/claude-code package, or named claude / claude.js / claude.cmd? @param {string} script */
+function isClaudeScript(script) {
+  const norm = script.replace(/\\/g, '/').toLowerCase();
+  if (norm.includes('@anthropic-ai/claude-code')) return true;
+  return /^(claude|claude\.(js|mjs|cjs|cmd))$/.test(norm.split('/').pop() || '');
+}
+
+/**
+ * Does the process look like Claude Code: the native binary (claude / claude.exe), or node / bun running
+ * Claude's script? "claude" somewhere else on the command line (node my-claude-notes.js) does not count.
+ * @param {ProcInfo|null} info
+ */
 function looksLikeClaude(info) {
   if (!info) return false;
   const first = (info.argv && info.argv[0]) || info.image || '';
   const exe = first.split(/[\\/]/).pop()?.toLowerCase().replace(/\.(exe|cmd|bat)$/, '') || '';
-  if (exe.includes('claude')) return true;
+  if (exe === 'claude') return true;
   if (!/^(node|nodejs|bun)$/.test(exe)) return false;
-  return /claude/i.test(info.command || '');
+  const words = info.argv && info.argv.length > 1 ? info.argv.slice(1) : splitCommand(info.command || '').slice(1);
+  const script = scriptOf(words);
+  return script !== null && isClaudeScript(script);
 }
 
 /**
