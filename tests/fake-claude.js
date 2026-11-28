@@ -35,6 +35,14 @@
 //   - with "nopre": no PreToolUse / PostToolUse(Agent): titles come only from meta.json, which is
 //     written after SubagentStart (like real Claude, where it can lag behind)
 // Titles: "Count files here", "Find token call sites", "Plan the retry fix", "Subagent task 4", ...
+//
+// Status line (M4): when --settings has statusLine.command, it is run through the shell with a
+// snapshot on stdin like real Claude 2.1.332 sends (tests/fixtures/statusline/): once at start
+// (startup.json: used_percentage null, no rate_limits), and for a prompt or line with
+// "statusline:<pct>" (sample.json with used_percentage <pct>, a context of <pct>% of the 1M window,
+// and cost / total tokens that grow with every such update in this process). Each run appends
+// {pct, stdout, stderr, code, ms} as a JSON line to <CC_HOME>/statusline-<sessionId>.log; a prompted
+// run also prints "STATUSLINE: <stdout>". CC_FAKE_STATUSLINE_SHELL: run it with that shell instead.
 'use strict';
 const crypto = require('crypto');
 const { execSync } = require('child_process');
@@ -70,7 +78,10 @@ fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', timestamp: new
 
 process.stdout.write('FAKE CLAUDE READY\r\n');
 fire('SessionStart', { source: get('--resume') ? 'resume' : 'startup' });
-if (prompt && /subagents:\d/.test(prompt) && !/layout:/.test(prompt)) {
+setImmediate(() => runStatusLine(null)); // after the constants below are set
+if (prompt && /statusline:\d/.test(prompt)) {
+  setImmediate(() => runStatusLine(Number(/statusline:(\d+)/.exec(prompt)[1])));
+} else if (prompt && /subagents:\d/.test(prompt) && !/layout:/.test(prompt)) {
   setImmediate(() => runSubagents(prompt)); // after the constants below are set
 } else if (prompt && !/layout:/.test(prompt)) {
   fire('UserPromptSubmit', { prompt });
@@ -91,6 +102,7 @@ function onLine(line) {
   const text = line.trim();
   if (text === '/exit') { fire('SessionEnd', { reason: 'exit' }); process.exit(0); }
   process.stdout.write(`GOT: ${text}\r\n`);
+  if (/statusline:\d/.test(text)) { runStatusLine(Number(/statusline:(\d+)/.exec(text)[1])); return; }
   if (/subagents:\d/.test(text)) { runSubagents(text); return; }
   fire('UserPromptSubmit', { prompt: text });
   fire('Stop');
@@ -98,6 +110,8 @@ function onLine(line) {
 
 const SUB_TITLES = ['Count files here', 'Find token call sites', 'Plan the retry fix'];
 const SUB_TYPES = ['general-purpose', 'Explore', 'Plan'];
+// M4: the model each fake subagent's meta.json names (index order)
+const SUB_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-5', 'claude-opus-4-1'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let subRun = 0;
 
@@ -118,7 +132,7 @@ async function runSubagents(text) {
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(path.join(subDir, `agent-${s.id}.meta.json`), JSON.stringify({
       agentType: s.type, isBuiltIn: true, description: s.title, toolUseId: s.toolUseId, spawnDepth: 1,
-      requestShape: bg ? 'background' : 'foreground', model: 'fake-model', finished,
+      requestShape: bg ? 'background' : 'foreground', model: SUB_MODELS[subs.indexOf(s) % SUB_MODELS.length], finished,
     }));
   };
   const agentInput = (s) => ({ description: s.title, prompt: `Do this: ${s.title}`, subagent_type: s.type });
@@ -178,6 +192,63 @@ async function runSubagents(text) {
     fire('Stop', { last_assistant_message: 'All subagents are done.', background_tasks: [] });
   }
   process.stdout.write(`SUBAGENTS DONE: ${n}\r\n`);
+}
+
+// ---- status line (M4) ----------------------------------------------------------------------
+const STATUSLINE_FIXTURES = path.join(__dirname, 'fixtures', 'statusline');
+let statusRuns = 0;
+/** One after another, like Claude (which aborts an older run; here they simply queue). */
+let statusQueue = Promise.resolve();
+
+/** The snapshot real Claude sends: startup (pct null) or after a reply. @param {number|null} pct */
+function statusSnapshot(pct) {
+  const p = JSON.parse(fs.readFileSync(path.join(STATUSLINE_FIXTURES, pct === null ? 'startup.json' : 'sample.json'), 'utf8'));
+  p.session_id = sessionId;
+  p.transcript_path = transcript;
+  p.cwd = process.cwd();
+  p.workspace = { ...p.workspace, current_dir: process.cwd(), project_dir: process.cwd(), added_dirs: [] };
+  if (pct !== null) {
+    const n = ++statusRuns;
+    const size = p.context_window.context_window_size;
+    p.context_window.used_percentage = pct;
+    p.context_window.remaining_percentage = 100 - pct;
+    p.context_window.current_usage = { input_tokens: 6, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: Math.round((size * pct) / 100) - 6 };
+    p.context_window.total_input_tokens = 1000 * n;
+    p.context_window.total_output_tokens = 100 * n;
+    p.cost.total_cost_usd = Math.round(0.01 * n * 100) / 100;
+    // the fixture's reset times are in the past (the UI says "reset"): move them ahead, 5 h and 7 days
+    if (p.rate_limits) {
+      const nowS = Math.floor(Date.now() / 1000);
+      if (p.rate_limits.five_hour) p.rate_limits.five_hour.resets_at = nowS + 5 * 3600;
+      if (p.rate_limits.seven_day) p.rate_limits.seven_day.resets_at = nowS + 7 * 86400;
+    }
+  }
+  return p;
+}
+
+/** Run the registered statusLine command the way Claude does (stdin JSON, stdout is the line). @param {number|null} pct */
+function runStatusLine(pct) {
+  const sl = settings.statusLine;
+  if (!sl || sl.type !== 'command' || typeof sl.command !== 'string') return;
+  const input = JSON.stringify(statusSnapshot(pct));
+  const { spawn } = require('child_process');
+  statusQueue = statusQueue.then(() => new Promise((resolve) => {
+    const started = Date.now();
+    const shell = process.env.CC_FAKE_STATUSLINE_SHELL || true;
+    const child = spawn(sl.command, { shell, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('error', (e) => { stderr += String(e); });
+    child.on('close', (code) => {
+      try { fs.appendFileSync(path.join(home, `statusline-${sessionId}.log`), JSON.stringify({ pct, stdout, stderr, code, ms: Date.now() - started }) + '\n'); } catch { /* ignore */ }
+      if (pct !== null) process.stdout.write(`STATUSLINE: ${stdout.trim()}\r\n`);
+      resolve(undefined);
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  }));
 }
 
 const layoutMatch = /layout:([\w,-]+)/.exec(prompt);

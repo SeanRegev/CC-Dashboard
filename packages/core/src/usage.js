@@ -4,6 +4,10 @@
  * Token use from Claude Code's own session transcript (JSONL), read incrementally:
  * each call only parses complete lines appended since the previous call.
  * Ported from the Python deck's usage.py.
+ *
+ * (v4) This is the fallback for AgentUsage (source 'transcript'): the status line (statusline.js)
+ * is exact and wins once it has reported. The window size is never assumed to be 200k when it is
+ * known; see contextWindowFor().
  */
 const fs = require('fs');
 
@@ -24,8 +28,13 @@ class UsageReader {
     this.cursors = new Map();
   }
 
-  /** @param {string} file @returns {{total:number, context:number, contextPct:number, model:string}|null} */
-  read(file) {
+  /**
+   * @param {string} file
+   * @param {{windowFor?: (model: string) => number|undefined}} [opts]  windowFor: the window the status line
+   *   last reported for this agent, else for this model id (see contextWindowFor)
+   * @returns {import('./types').AgentUsage|null}
+   */
+  read(file, opts = {}) {
     if (!file) return null;
     let cur = this.cursors.get(file);
     if (!cur) {
@@ -54,7 +63,7 @@ class UsageReader {
     } finally {
       if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
     }
-    return summary(cur.t);
+    return summary(cur.t, opts.windowFor);
   }
 
   forget(file) { this.cursors.delete(file); }
@@ -90,16 +99,38 @@ function consume(cur, line) {
   t.replies += 1;
 }
 
-/** @param {Totals} t */
-function summary(t) {
-  const window = t.model.includes('[1m]') ? BIG_CONTEXT_WINDOW : CONTEXT_WINDOW;
-  const pct = t.context ? Math.min(100, (100 * t.context) / window) : 0;
+/**
+ * The context window to estimate with. Order: what the status line reported (for this agent, else for
+ * this model id: `known`); else `[1m]` in the model name; else 1M when the context is already over 200k
+ * (it can't be a 200k window); else 200k.
+ * @param {string} model @param {number} context @param {number|undefined} [known]
+ */
+function contextWindowFor(model, context, known) {
+  if (typeof known === 'number' && Number.isFinite(known) && known > 0) return known;
+  if (String(model || '').includes('[1m]')) return BIG_CONTEXT_WINDOW;
+  if (context > CONTEXT_WINDOW) return BIG_CONTEXT_WINDOW;
+  return CONTEXT_WINDOW;
+}
+
+/** @param {number} context @param {number} window */
+function percentOf(context, window) {
+  const pct = context && window > 0 ? Math.min(100, (100 * context) / window) : 0;
+  return Math.round(pct * 100) / 100;
+}
+
+/** @param {Totals} t @param {(model: string) => number|undefined} [windowFor] @returns {import('./types').AgentUsage} */
+function summary(t, windowFor) {
+  let known;
+  try { known = windowFor ? windowFor(t.model) : undefined; } catch { known = undefined; }
+  const window = contextWindowFor(t.model, t.context, known);
   return {
     total: t.input + t.output + t.cacheWrite, // new tokens; cheap cache re-reads are not counted
     context: t.context,
-    contextPct: Math.round(pct * 100) / 100,
+    contextPct: percentOf(t.context, window),
     model: t.model,
+    contextWindow: window,
+    source: 'transcript',
   };
 }
 
-module.exports = { UsageReader, CONTEXT_WINDOW, BIG_CONTEXT_WINDOW };
+module.exports = { UsageReader, contextWindowFor, percentOf, CONTEXT_WINDOW, BIG_CONTEXT_WINDOW };

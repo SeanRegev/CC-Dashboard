@@ -1,0 +1,20 @@
+/* Usage view (M4 track B). */
+.usage-view { padding: 16px 20px; overflow: auto; }
+.usage-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.usage-head h2 { margin: 0; font-size: 18px; }
+.usage-note { font-size: 12px; color: var(--text); padding: 2px 8px; border-radius: 6px; background: var(--tint-3); }
+.usage-total { margin: 10px 0 4px; color: var(--muted); }
+.usage-total strong { color: var(--text); }
+.usage-empty { margin-top: 16px; }
+.usage-block { margin-top: 18px; max-width: 760px; }
+.usage-block h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.usage-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.usage-table td { padding: 5px 8px; border-bottom: 1px solid var(--line-soft); }
+.usage-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-table .cost { color: var(--text); font-weight: 550; }
+.usage-table .name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-table .bar-col { width: 22%; min-width: 60px; }
+.usage-sub { margin-left: 8px; font-size: 11px; color: var(--muted); padding: 1px 6px; border-radius: 6px; background: var(--tint-3); }
+.usage-bar { display: block; height: 6px; border-radius: 6px; background: var(--tint-3); overflow: hidden; }
+.usage-bar-fill { display: block; height: 100%; border-radius: 6px; background: var(--idle); }

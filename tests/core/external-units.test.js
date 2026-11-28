@@ -71,6 +71,33 @@ test('process identity: tasklist CSV, /proc stat, what looks like Claude', () =>
   assert.ok(!X.looksLikeClaude(null));
 });
 
+test('looksLikeClaude: node / bun count only when they run Claude\'s script (win32, linux, macOS)', () => {
+  // win32: image from tasklist, command line from PowerShell.
+  const win = (/** @type {string} */ command) => ({ image: 'node.exe', command });
+  assert.ok(X.looksLikeClaude(win('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js" --resume')));
+  assert.ok(X.looksLikeClaude(win('node.exe C:\\tools\\claude.js')));
+  assert.ok(X.looksLikeClaude({ image: 'bun.exe', command: 'bun.exe run C:\\tools\\CLAUDE.cmd' }));
+  assert.ok(X.looksLikeClaude(win('node.exe --require C:\\hook.js C:\\Users\\me\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\notes\\my-claude-notes.js')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\claude-notes\\server.js --claude')));
+  assert.ok(!X.looksLikeClaude(win('node.exe -e "console.log(\'claude\')"')));
+  assert.ok(!X.looksLikeClaude(win('node.exe C:\\proj\\cli.js')), 'cli.js alone, outside the Claude package, is not Claude');
+  // linux: full argv from /proc/<pid>/cmdline.
+  const lin = (/** @type {string[]} */ argv) => ({ argv, command: argv.join(' ') });
+  assert.ok(X.looksLikeClaude(lin(['node', '/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js'])));
+  assert.ok(X.looksLikeClaude(lin(['/usr/bin/bun', '/home/me/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js', '-c'])));
+  assert.ok(X.looksLikeClaude(lin(['node', '--max-old-space-size=4096', '/usr/local/bin/claude'])));
+  assert.ok(!X.looksLikeClaude(lin(['node', '/home/me/my-claude-notes.js'])));
+  assert.ok(!X.looksLikeClaude(lin(['node', 'server.js', '/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js'])), 'only the script counts, not later arguments');
+  assert.ok(!X.looksLikeClaude(lin(['/usr/bin/claude-notes', '--watch'])));
+  // macOS: ps gives the command name (comm) and the whole command line.
+  const mac = (/** @type {string} */ comm, /** @type {string} */ command) => ({ argv: [comm], command });
+  assert.ok(X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js')));
+  assert.ok(X.looksLikeClaude(mac('/Users/me/.local/bin/claude', '/Users/me/.local/bin/claude --resume')));
+  assert.ok(!X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node /Users/me/my-claude-notes.js')));
+  assert.ok(!X.looksLikeClaude(mac('node', '/opt/homebrew/bin/node')));
+});
+
 test('confirmIdentity: start time must match on Linux, and the process may not start after the session', () => {
   const reg = X.parseRegistry({ pid: 7, sessionId: 's', cwd: '/x', procStart: '152', startedAt: 1_000_000 });
   const claude = { argv: ['/opt/claude-code/bin/claude'], command: '/opt/claude-code/bin/claude' };
@@ -325,4 +352,54 @@ test('takeOver refuses a conversation that is open in two places, and signals no
   state.onSignal = (pid) => state.alive.delete(pid);
   const agent = await ext.takeOver({ id: 'ext:sess-1' });
   assert.equal(agent.id, 'adopted');
+});
+
+test('a finished subagent whose files did not change is not read again; running ones keep tailing; a change wakes it', () => {
+  const { newParseState } = require('../../packages/core/src/transcript');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-sub-'));
+  const realOpen = fs.openSync;
+  const realRead = fs.readFileSync;
+  /** @type {string[]} */
+  const reads = [];
+  try {
+    const jsonl = path.join(dir, 'agent-s1.jsonl');
+    const meta = path.join(dir, 'agent-s1.meta.json');
+    fs.writeFileSync(jsonl, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'go' } }) + '\n');
+    fs.writeFileSync(meta, JSON.stringify({ agentType: 'Explore', description: 'Look around' }));
+    const ext = new X.External(/** @type {any} */ ({}), { sys: {} });
+    const rec = /** @type {any} */ ({ id: 'ext:x', subs: new Map(), st: newParseState() });
+    // @ts-ignore counting wrappers
+    fs.openSync = (/** @type {any} */ f, ...a) => { reads.push(String(f)); return realOpen(f, ...a); };
+    // @ts-ignore
+    fs.readFileSync = (/** @type {any} */ f, ...a) => { reads.push(String(f)); return realRead(f, ...a); };
+    const tail = () => ext.tailSubagent(rec, dir, 's1', [], Date.now());
+    assert.ok(tail(), 'first read announces it');
+    assert.ok(reads.some((f) => f === jsonl) && reads.some((f) => f === meta));
+    // Still running and unchanged: it is still tailed (the file is opened), nothing changes.
+    reads.length = 0;
+    assert.equal(tail(), null);
+    assert.ok(reads.includes(jsonl), 'a running subagent is tailed');
+    // Finish it (a task notification would do the same), then nothing is read at all.
+    rec.subs.get('s1').sub.state = 'done';
+    assert.equal(tail(), null);
+    reads.length = 0;
+    for (let i = 0; i < 3; i++) assert.equal(tail(), null);
+    assert.deepEqual(reads, [], 'no open, no meta read for a finished subagent');
+    // New output wakes it up.
+    fs.appendFileSync(jsonl, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:05Z', message: { role: 'user', content: 'more' } }) + '\n');
+    tail();
+    assert.ok(reads.includes(jsonl), 'a changed file is read again');
+    reads.length = 0;
+    tail();
+    assert.deepEqual(reads, []);
+    // A running subagent does not re-read an unchanged meta.json.
+    rec.subs.get('s1').sub.state = 'running';
+    reads.length = 0;
+    tail();
+    assert.ok(!reads.includes(meta), 'unchanged meta.json is not re-read');
+  } finally {
+    fs.openSync = realOpen;
+    fs.readFileSync = realRead;
+    rmrf(dir);
+  }
 });

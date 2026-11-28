@@ -5,6 +5,7 @@
  *   WS   /rpc?token=...            JSON-RPC (packages/shared/protocol.js)
  *   GET  /health                   -> { ok: true, version }
  *   POST /hook?agent=<id>          hook payload from hook.js, header x-cc-event
+ *   POST /statusline?agent=<id>    (v4) status-line JSON from the relay
  */
 const crypto = require('crypto');
 const http = require('http');
@@ -14,6 +15,7 @@ const { RpcError } = require('./core');
 
 const MAX_HOOK_BODY = 32 * 1024 * 1024; // PostToolUse can carry a whole file
 const MAX_WS_MESSAGE = 8 * 1024 * 1024;
+const MAX_STATUSLINE_BODY = 256 * 1024; // a status-line snapshot is a few KB
 
 /** @param {string} a @param {string} b */
 function tokenOk(a, b) {
@@ -70,6 +72,8 @@ const HANDLERS = {
   'activity.list': (core, p) => (isExternalId(p.agentId) ? core.external.activityList(p) : core.activity.list(needAgent(core, p))),
   'external.list': (core, p) => core.external.list(p),
   'external.takeOver': (core, p) => core.external.takeOver(p),
+  // v4
+  'usage.get': (core, p) => core.statusline.usageGet(p),
 };
 
 /** @param {any} id */
@@ -81,6 +85,30 @@ function needAgent(core, p) {
   return p;
 }
 for (const m of METHODS) if (!(m in HANDLERS)) throw new Error(`server is missing protocol method ${m}`);
+
+/**
+ * Read a JSON request body. Too big or not JSON -> {} (the caller still answers).
+ * @param {import('http').IncomingMessage} req @param {number} max @param {(payload: any) => void} done
+ */
+function readJson(req, max, done) {
+  const chunks = [];
+  let size = 0;
+  let tooBig = false;
+  req.on('data', (c) => {
+    size += c.length;
+    if (size > max) tooBig = true;
+    else chunks.push(c);
+  });
+  req.on('end', () => {
+    let payload = {};
+    if (!tooBig) {
+      try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { payload = {}; }
+    }
+    if (!payload || typeof payload !== 'object') payload = {};
+    done(payload);
+  });
+  req.on('error', () => { /* client went away */ });
+}
 
 /**
  * @param {import('./core').Core} core
@@ -106,26 +134,22 @@ function createServer(core, opts) {
     }
     if (req.method === 'GET' && url.pathname === '/health') return reply(200, { ok: true, version: core.version });
     if (req.method === 'POST' && url.pathname === '/hook') {
-      const chunks = [];
-      let size = 0;
-      let tooBig = false;
-      req.on('data', (c) => {
-        size += c.length;
-        if (size > MAX_HOOK_BODY) tooBig = true;
-        else chunks.push(c);
-      });
-      req.on('end', () => {
+      readJson(req, MAX_HOOK_BODY, (payload) => {
         const agentId = url.searchParams.get('agent') || '';
         const event = String(req.headers['x-cc-event'] || '');
-        let payload = {};
-        if (!tooBig) {
-          try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { payload = {}; }
-        }
         let found = false;
         try { found = core.handleHook(agentId, event, payload); } catch (e) { log(`hook ${event} failed: ${/** @type {Error} */ (e).stack}`); }
         reply(found ? 200 : 404, { ok: found });
       });
-      req.on('error', () => { /* client went away */ });
+      return undefined;
+    }
+    if (req.method === 'POST' && url.pathname === '/statusline') {
+      readJson(req, MAX_STATUSLINE_BODY, (payload) => {
+        const agentId = url.searchParams.get('agent') || '';
+        let found = false;
+        try { found = core.handleStatusLine(agentId, payload); } catch (e) { log(`statusline failed: ${/** @type {Error} */ (e).stack}`); }
+        reply(found ? 200 : 404, { ok: found });
+      });
       return undefined;
     }
     req.resume();

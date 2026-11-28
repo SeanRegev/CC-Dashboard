@@ -34,7 +34,10 @@ test('create agent: starting -> idle, with lastPrompt, files, counts, usage and 
   assert.deepEqual(states.slice(-2), ['working', 'idle']);
   assert.ok(statuses.some((x) => x.state === 'working' && x.tool === 'Bash' && x.detail === 'npm test'));
   // Usage from the fake transcript: total = input + output + cache_write, context = input + cache_read + cache_write.
-  assert.deepEqual(s.usage, { total: 510, context: 1010, contextPct: 0.51, model: 'fake-model' });
+  // v4: the fake also runs its status line once at start (like real Claude: no % yet, but the 1M window
+  // and the model), so once that has landed the estimate is out of 1M (tests/core/statusline*.test.js).
+  const u = (await core.waitStatus(agent.id, (x) => x.usage.contextWindow === 1000000, 'startup status line')).usage;
+  assert.deepEqual(u, { total: 510, context: 1010, contextPct: 0.1, model: 'claude-haiku-5-5', contextWindow: 1000000, source: 'transcript', costUsd: 0 });
 
   const argv = argvLog(core.home)[0];
   assert.deepEqual(argv.slice(0, 2), ['--session-id', agent.sessionId]);

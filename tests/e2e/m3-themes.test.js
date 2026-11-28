@@ -78,7 +78,7 @@ for (const size of ['1024x768', '1440x900']) {
       await app.waitFor(`!document.querySelector('[data-modal]')`);
 
       await app.click('.space[data-space="cc-dashboard"]');
-      await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelector('.tile-subs .sub-chip') && document.querySelector('.ext-tile')`, 15000);
+      await app.waitFor(`window.__cc.snapshot().view === 'grid' && document.querySelector('.tile-subs .sub-card') && document.querySelector('.ext-tile')`, 15000);
       await sleep(300);
       await audit(`${theme}-grid-strip-outside`);
 

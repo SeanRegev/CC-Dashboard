@@ -4,7 +4,8 @@
  * starting), Done, Stopped (incl. exited). Filter: all spaces / the current space.
  */
 import { h, mount } from '../dom.js';
-import { boardColumns, BOARD_COLUMNS, describeActivity, cardTime, contextPercent, gaugeLevel } from '../logic.js';
+import { boardColumns, BOARD_COLUMNS, describeActivity, cardTime, } from '../logic.js';
+import { gaugeData } from '../components/usage.js';
 import { roleBadge } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
@@ -32,7 +33,7 @@ export function createBoardView(ctx) {
   function card(e) {
     const st = e.status ? e.status.state : 'stopped';
     const id = e.agent.id;
-    const pct = contextPercent(e.status && e.status.usage);
+    const g = gaugeData(e.status && e.status.usage);
     const node = h('div', {
       class: `board-card st-${st}`, role: 'button', tabindex: '0', dataset: { agent: id, state: st },
       onclick: (/** @type {MouseEvent} */ ev) => { if (!(/** @type {HTMLElement} */ (ev.target)).closest('button')) ctx.openAgent(id); },
@@ -42,7 +43,7 @@ export function createBoardView(ctx) {
     h('div', { class: 'bc-meta' }, roleBadge(e.agent), h('span', { class: 'bc-space' }, ctx.spaceName(e.agent.spaceId))),
     h('div', { class: 'bc-activity', title: describeActivity(e.status) }, describeActivity(e.status)),
     h('div', { class: 'bc-foot' },
-      h('span', { class: 'bc-ctx', title: `Context window ${pct}% full` }, h('span', { class: `gauge-bar lvl-${gaugeLevel(pct)}` }, h('span', { class: 'gauge-fill', style: { width: `${pct}%` } })), h('span', { class: 'gauge-pct' }, `${pct}%`))),
+      h('span', { class: 'bc-ctx', title: g.title }, h('span', { class: `gauge-bar lvl-${g.level}` }, h('span', { class: 'gauge-fill', style: { width: `${g.pct}%` } })), h('span', { class: 'gauge-pct' }, g.text))),
     approvalButtons(ctx, e, { compact: true }));
     attachAgentMenu(node, ctx, id);
     return node;

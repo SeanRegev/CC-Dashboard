@@ -100,3 +100,40 @@ test('create, status events and notify', async (t) => {
   assert.equal(sp.id, 'my-project');
   await until(() => c.events.some((e) => e.event === 'space.changed'));
 });
+
+test('mock core v4: usage.get seeds, usage fields on statuses, subagent models', async (t) => {
+  const home = tmpHome();
+  const mock = await startMockCore({ home, static: true });
+  const high = await startMockCore({ home: tmpHome(), static: true, usage: 'high', writeCoreJson: false });
+  const none = await startMockCore({ home: tmpHome(), static: true, usage: 'none', writeCoreJson: false });
+  t.after(() => Promise.all([mock.close(), high.close(), none.close()]));
+  const c = rpc(mock.port, mock.token);
+  await c.open;
+  t.after(() => c.ws.close());
+  const u = await c.call('usage.get');
+  assert.equal(u.limits.fiveHour.usedPct, 62);
+  assert.equal(u.limits.sevenDay.usedPct, 31);
+  assert.ok(u.limits.fiveHour.resetsAt > Date.now(), 'resetsAt is ms epoch in the future');
+  assert.equal(u.limits.fromAgentId, 'fix-flaky-tests');
+  assert.ok(u.byAgent['refactor-auth'].costUsd > 0 && u.byAgent['refactor-auth'].name === 'refactor-auth');
+  assert.ok(u.byAgent['old-migration'], 'a removed agent keeps its totals');
+  assert.ok(u.bySpace['cc-dashboard'].inputTokens > 0);
+  assert.ok(Object.keys(u.byDay).every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)) && Object.keys(u.byDay).length >= 3);
+  const list = await c.call('agents.list');
+  const fix = list.find((/** @type {any} */ e) => e.agent.id === 'fix-flaky-tests').status.usage;
+  assert.equal(fix.source, 'statusline');
+  assert.equal(fix.contextWindow, 1_000_000);
+  assert.equal(fix.context, Math.round(1_000_000 * fix.contextPct / 100));
+  assert.equal(typeof fix.costUsd, 'number');
+  assert.equal(list.find((/** @type {any} */ e) => e.agent.id === 'old-spike').status.usage.source, 'transcript');
+  const subs = await c.call('subagents.list', { agentId: 'fix-flaky-tests' });
+  assert.equal(subs.find((/** @type {any} */ s) => s.type === 'Explore').model, 'claude-haiku-4-5-20251001');
+  assert.ok(subs.every((/** @type {any} */ s) => typeof s.model === 'string' && s.model));
+  assert.equal(high.usage.usage.limits.fiveHour.usedPct, 93);
+  assert.equal(none.usage.usage.limits.updatedAt, 0);
+  assert.equal(none.usage.usage.limits.fiveHour, undefined);
+  // setLimits broadcasts usage.changed
+  mock.usage.setLimits({ fiveHour: { usedPct: 91, resetsAt: Date.now() + 60e3 }, updatedAt: Date.now() });
+  const ev = await until(() => c.events.find((e) => e.event === 'usage.changed'));
+  assert.equal(ev.data.usage.limits.fiveHour.usedPct, 91);
+});

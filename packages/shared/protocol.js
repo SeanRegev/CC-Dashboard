@@ -11,10 +11,13 @@
  *
  * HTTP (same port, token required as ?token= or header x-cc-token):
  *   POST /hook?agent=<agentId>   body = Claude Code hook payload JSON, header x-cc-event: <EventName>
+ *   POST /statusline?agent=<agentId>  (v4) body = Claude Code's status-line JSON (what Claude pipes to a
+ *                                statusLine command on stdin). Same token rules as /hook. 200 { ok: true } for a
+ *                                known agent, 404 { ok: false } otherwise. The relay prints the status line itself.
  *   GET  /health                 -> { ok: true, version }
  */
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 
 /** Agent states, in the order the sidebar sorts them. */
 const STATES = Object.freeze(['needs_you', 'working', 'starting', 'idle', 'stopped', 'exited']);
@@ -113,13 +116,55 @@ const SUBAGENT_DEFAULT_EMOJI = '🤖';
  * @property {string} [lastPrompt]
  * @property {{tools:number, turns:number, errors:number, subagents:number}} counts
  * @property {string[]} files       files it edited
- * @property {{total:number, context:number, contextPct:number, model:string}} usage
+ * @property {AgentUsage} usage
  * @property {Array<[number,string]>} history   [ms, state] changes, newest last, max 400
  * @property {number} updatedAt
  * @property {number} [needsSince]
  * @property {{running: number, total: number}} [subagents]   (v3) this session's subagents; while any runs in the
  *                                  background after the session's own turn ended, state stays 'working'
  * @property {string} [askedBy]     (v3) with permission: the Subagent id whose tool the prompt is for ('' or absent = the session)
+ */
+
+/**
+ * @typedef {Object} AgentUsage     One session's tokens and context window.
+ * @property {number} total         input + output + cache-write tokens for the whole session (NOT the context size)
+ * @property {number} context       tokens in the context window now (the prompt size of the latest reply)
+ * @property {number} contextPct    0..100. source 'statusline': Claude's own used_percentage; 'transcript': context /
+ *                                  contextWindow, estimated by the core
+ * @property {string} model
+ * @property {number} [contextWindow]  (v4) the window size in tokens (e.g. 200000, 1000000): from the status line, else
+ *                                  the core's best guess for the model
+ * @property {number} [costUsd]     (v4) Claude's total_cost_usd for the session. On a subscription this is an
+ *                                  API-equivalent estimate, not a bill: label it that way
+ * @property {'statusline'|'transcript'} [source]  (v4) where contextPct and contextWindow come from. The status line
+ *                                  is exact; transcript is an estimate (headless sessions, or before the first update)
+ */
+
+/**
+ * @typedef {Object} UsageLimit     (v4) One of the account's rate-limit windows, as the status line reports it.
+ * @property {number} usedPct       0..100
+ * @property {number} resetsAt      ms epoch (Claude reports epoch seconds; the core converts)
+ */
+
+/**
+ * @typedef {Object} UsageTotals    (v4) Cost and tokens summed over a set of sessions. From the status line.
+ * @property {number} costUsd       API-equivalent estimate
+ * @property {number} inputTokens
+ * @property {number} outputTokens
+ * @property {string} [name]        byAgent only: the agent's name when it was last seen (it may be removed since)
+ * @property {string} [spaceId]     byAgent only
+ */
+
+/**
+ * @typedef {Object} Usage          (v4) Account limits and cost totals. Built from the status-line updates of the
+ *                                  core's agents; no model call, no tokens. Daily totals persist in <CC_HOME>/usage.json.
+ * @property {{fiveHour?: UsageLimit, sevenDay?: UsageLimit, updatedAt: number, fromAgentId?: string}} limits
+ *                                  from the freshest status line that had rate_limits; updatedAt 0 = never seen
+ *                                  (e.g. an API-key account, which has no rate_limits)
+ * @property {Record<string, UsageTotals>} byAgent   agent id → totals
+ * @property {Record<string, UsageTotals>} bySpace   space id → totals
+ * @property {Record<string, UsageTotals>} byDay     local date "YYYY-MM-DD" → totals (what was added that day)
+ * @property {number} updatedAt
  */
 
 /**
@@ -132,6 +177,8 @@ const SUBAGENT_DEFAULT_EMOJI = '🤖';
  * @property {string} type          agent_type, e.g. "general-purpose", "Explore", "Plan", or a plugin's agent
  * @property {'running'|'done'|'failed'|'stopped'} state
  *                                  stopped: the session ended (or was stopped) while it was running
+ * @property {string} [model]       (v4) the model it runs on, as Claude names it (e.g. "claude-haiku-4-5-20251001"
+ *                                  or "haiku"): from its meta.json, else the Agent tool's tool_input.model
  * @property {boolean} background   it runs while the parent goes on (Claude's "run in background")
  * @property {string} [tool]        tool it is running now
  * @property {string} [detail]      e.g. the command or file
@@ -301,6 +348,7 @@ const SUBAGENT_DEFAULT_EMOJI = '🤖';
  *                                                                     newest last; before = seq (older page); limit default 200, max 1000;
  *                                                                     subagentId filters ('' = only the session's own lines)
  * external.list    {}                                               → ExternalSession[]
+ * usage.get        {}                                               → Usage   (v4)
  * external.takeOver  { id, spaceId?, name?, force? }                 → Agent  ends the outside process (only when it is idle, unless force),
  *                                                                     waits for it to exit, then resumes the same conversation here
  *                                                                     (claude --resume <sessionId> in its cwd). Refuses with still_working
@@ -324,6 +372,7 @@ const SUBAGENT_DEFAULT_EMOJI = '🤖';
  * subagent.updated  { agentId, subagent }          (v3: started, tool changed, ended)
  * activity         { agentId, entries }           (v3: new log lines, in seq order; agentId may be "ext:<sessionId>")
  * external.changed  { sessions }                   (v3: the list of outside sessions changed)
+ * usage.changed    { usage }                      (v4: Usage changed; at most about once a second)
  */
 const METHODS = Object.freeze([
   'hello', 'spaces.list', 'spaces.add', 'spaces.remove',
@@ -336,12 +385,14 @@ const METHODS = Object.freeze([
   'dashboards.list', 'dashboards.add', 'dashboards.remove', 'dashboards.trust', 'dashboards.start', 'dashboards.stop',
   'dashboards.attach', 'dashboards.detach', 'dashboards.input', 'dashboards.resize',
   'subagents.list', 'activity.list', 'external.list', 'external.takeOver',
+  'usage.get',
 ]);
 
 const EVENTS = Object.freeze([
   'agent.created', 'agent.removed', 'agent.status', 'agent.output', 'agent.exit', 'space.changed', 'notify',
   'agent.updated', 'library.changed', 'dashboard.output', 'dashboard.exit', 'dashboards.changed',
   'subagent.updated', 'activity', 'external.changed',
+  'usage.changed',
 ]);
 
 const ERRORS = Object.freeze({

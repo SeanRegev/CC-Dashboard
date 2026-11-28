@@ -184,7 +184,7 @@ export function cardTime(status, now = Date.now()) {
  */
 /** Ctrl+Shift+<key> → view. @type {Record<string, string>} */
 export const VIEW_KEYS = Object.freeze({
-  KeyT: 'terminals', KeyG: 'grid', KeyB: 'board', KeyA: 'inbox', KeyL: 'library', KeyD: 'dashboards',
+  KeyT: 'terminals', KeyG: 'grid', KeyB: 'board', KeyA: 'inbox', KeyL: 'library', KeyD: 'dashboards', KeyU: 'usage',
 });
 
 export function shortcutFor(ev, platform = 'win32') {

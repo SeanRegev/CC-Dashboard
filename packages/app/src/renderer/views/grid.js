@@ -11,11 +11,12 @@
  * layoutPanes() moves the element of every pane agent back. The grid also lets go of everything on hide().
  */
 import { h, mount, icon } from '../dom.js';
-import { gridOrder, describeActivity, cardTime, stateLabel, contextPercent, gaugeLevel, tailLines } from '../logic.js';
+import { gridOrder, describeActivity, cardTime, stateLabel, tailLines } from '../logic.js';
+import { gaugeData } from '../components/usage.js';
 import { roleBadge, roleOf } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
-import { renderSubagentStrip } from '../components/activity.js';
+import { renderGridSubagents } from '../components/subagent-cards.js';
 import { createExternalTiles, externalOfSpace } from '../components/external.js';
 
 const SNAPSHOT_LINES = 60;
@@ -212,11 +213,12 @@ export function createGridView(ctx) {
     t.runBtn.className = `btn small tile-run ${running ? 'ghost' : 'primary'}`;
     t.runBtn.title = running ? 'Stop the Claude process (the chat is kept)' : 'Resume this session';
     t.footState.textContent = stateLabel(st);
-    const pct = contextPercent(e.status && e.status.usage);
-    t.gaugeFill.style.width = `${pct}%`;
-    t.gaugeBar.className = `gauge-bar lvl-${gaugeLevel(pct)}`;
-    t.gaugePct.textContent = `${pct}%`;
-    renderSubagentStrip(ctx, t.subsSlot, t.id); // M3 Activity UI
+    const g = gaugeData(e.status && e.status.usage);
+    t.gaugeFill.style.width = `${g.pct}%`;
+    t.gaugeBar.className = `gauge-bar lvl-${g.level}`;
+    t.gaugePct.textContent = g.text;
+    if (t.gaugePct.parentElement) t.gaugePct.parentElement.title = g.title;
+    renderGridSubagents(ctx, t.subsSlot, t.id); // M4 subagent cards (replaces the M3 chip strip)
   }
 
   function markFocus() {

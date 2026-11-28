@@ -2,7 +2,7 @@
 'use strict';
 /**
  * M3 against the REAL core (the other M3 e2e files use the mock core): fake Claude with subagents, a live fake
- * outside session (tests/fake-claude-registry.js) and the Electron app on top. Temp CC_HOME and CLAUDE_CONFIG_DIR.
+ * outside session (tests/fake-claude-registry/claude.js) and the Electron app on top. Temp CC_HOME and CLAUDE_CONFIG_DIR.
  * Linux CI: xvfb-run -a npm run test:e2e
  */
 const test = require('node:test');
@@ -15,7 +15,7 @@ const { launchApp } = require('../../packages/app/src/renderer/dev/cdp.js');
 const { projectDirName } = require('../../packages/core/src/transcript.js');
 
 const skip = h.missingPieces();
-const REGISTRY = path.join(h.REPO, 'tests', 'fake-claude-registry.js');
+const REGISTRY = path.join(h.REPO, 'tests', 'fake-claude-registry', 'claude.js');
 const q = (/** @type {string} */ s) => JSON.stringify(s);
 
 /** Core + app + rpc on one temp home; cleaned up by t.after. */
@@ -50,11 +50,11 @@ test('real core: subagents show in the tile strip, the sidebar badge and the dra
   const A = q(agent.id);
   const tile = `.tile[data-agent=${A}]`;
 
-  await app.waitFor(`document.querySelectorAll('${tile} .sub-chip').length === 2`, 20000);
-  const titles = await app.evaluate(`[...document.querySelectorAll('${tile} .sub-chip .sub-title')].map((n) => n.textContent).sort()`);
+  await app.waitFor(`document.querySelectorAll('${tile} .sub-card.st-running').length === 2`, 20000);
+  const titles = await app.evaluate(`[...document.querySelectorAll('${tile} .sub-card .sub-card-title')].map((n) => n.textContent).sort()`);
   assert.deepEqual(titles, ['Count files here', 'Find token call sites']);
   // the strip shows the tool a subagent is running right now
-  await app.waitFor(`[...document.querySelectorAll('${tile} .sub-chip .sub-tool')].some((n) => /Bash/.test(n.textContent))`, 10000);
+  await app.waitFor(`[...document.querySelectorAll('${tile} .sub-card .sub-card-tool')].some((n) => /Bash/.test(n.textContent))`, 10000);
   await app.waitFor(`document.querySelector('.agent-card[data-agent=${A}] .sub-badge') && /2 running/.test(document.querySelector('.agent-card[data-agent=${A}] .sub-badge').textContent)`, 10000);
   assert.equal(await app.evaluate(`window.__cc.snapshot().view`), 'grid');
 
@@ -86,7 +86,7 @@ test('real core: subagents show in the tile strip, the sidebar badge and the dra
     return st.state === 'idle' && st.counts.turns >= 3;
   }, 'the session idle after its task-notification turns', 30000, async () => JSON.stringify(st && { state: st.state, turns: st.counts.turns, subagents: st.subagents }));
   assert.equal(st.subagents.running, 0);
-  await app.waitFor(`document.querySelectorAll('${tile} .sub-chip').length === 0 && /2/.test((document.querySelector('${tile} .sub-pill.done') || {}).textContent || '')`, 10000);
+  await app.waitFor(`document.querySelectorAll('${tile} .sub-card.st-running').length === 0 && /2/.test((document.querySelector('${tile} .sub-pill.done') || {}).textContent || '')`, 10000);
   await app.waitFor(`!document.querySelector('.agent-card[data-agent=${A}] .sub-badge')`, 10000);
   await app.waitFor(`document.querySelectorAll('#activity-drawer .act-item.sub.st-done').length === 2`, 10000);
   const subs = await rpc.call('subagents.list', { agentId: agent.id });

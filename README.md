@@ -32,7 +32,8 @@ demo projects, captured by [`scripts/readme-screenshots.js`](scripts/readme-scre
 - **Board, Library and Dashboards (0.2).** A board of your agents by state, your plugins and skills in one place, and the dashboards your tools ship.
 - **Subagents and an activity log (0.3).** See each helper agent a session starts, with its title and what it is doing. A full log of what each session does, built without spending tokens.
 - **Sessions started outside the app (0.3).** Claude Code sessions from your terminal or editor show up as view-only tiles. **Take over** moves one into the app and keeps its conversation.
-- **Context and token use** per agent, and which model it runs.
+- **Usage meter and Usage view (0.4).** Your 5-hour and weekly limits in the top bar, and cost and tokens per agent, space and day.
+- **Exact context use (0.4).** Each agent shows its context as `98k / 1M (10%)`, with the window size Claude really uses, and which model it runs.
 - **Nothing re-implemented.** It's Claude Code as you know it, with your settings, skills and `CLAUDE.md`. CC-Dashboard only adds its own hooks (to learn each agent's status) when it starts `claude`; your settings files are never edited.
 
 | Two agents side by side (`Ctrl+\`) | Jump to any agent in any project (`Ctrl+K`) |
@@ -147,15 +148,33 @@ Filter it to the current project or show all projects.
 
 ![The Dashboards view with CodeBurn, plugin dashboards and your own, each with an Open button](docs/images/dashboards.png)
 
+### Usage
+
+The top bar shows your account's limits, as Claude Code reports them: `5h 62% · resets 16:20 / week 31%`
+(the 5-hour and the weekly limit). It turns amber at 75% and red at 90%. Hover over it to see when it was read and
+which agent reported it. After a reset time has passed, it says so instead of showing an old percentage. It stays
+empty until an agent reports its limits.
+
+- The New agent dialog warns you when the 5-hour limit is at 90% or more.
+- `Ctrl+Shift+U` opens the **Usage** view: cost and tokens per agent, per space and per day. A removed agent keeps
+  its name in the list.
+- The context of each agent comes from Claude's own status line. A session with a 1M window shows its real share
+  of that window. A number that is only estimated from the transcript is marked with `~`.
+
+**The cost is an API-equivalent estimate, not a bill.** It is what the same tokens would cost at API prices. If you
+use Claude Code on a subscription, you pay your plan, not these amounts. The Usage view says so too.
+
 ### Subagents and the activity log
 
 When Claude hands work to a helper agent (a subagent), the helper appears under its session with a title, such as
 "Find token call sites", and with what it is doing now.
 
-- Each grid tile shows a strip of the subagents that are running. The approval card says *asked by* the subagent
-  when one of its tools needs permission.
-- Open the **activity drawer** with `Ctrl+Shift+Y` (`Cmd+Shift+Y` on macOS), from **Activity** in an agent's menu,
-  or by clicking a subagent chip or the badge in the sidebar.
+- **Subagent cards (0.4).** Each subagent is a card with its title, its type, its model, its state and what it is
+  doing now. In the sidebar the cards sit under their session, and you can collapse them; finished ones fold into
+  "✓ N done". Each grid tile shows a row of the subagent cards under it, and the Terminals view shows them in a bar
+  under each pane header. The approval card says *asked by* the subagent when one of its tools needs permission.
+- Click a subagent card to open the activity drawer on that subagent. Open the **activity drawer** with `Ctrl+Shift+Y`
+  (`Cmd+Shift+Y` on macOS), or from **Activity** in an agent's menu.
 - The drawer lists the **Session** first, then each subagent. Its type shows as an icon: 🔧 General, 🔭 Explore,
   📐 Plan, 🤖 anything else. Its state is running, ✓ done, ✗ failed or ■ stopped.
 - Click a subagent to show only its lines. The feed updates live. **Load older** shows earlier lines.
@@ -229,6 +248,7 @@ On macOS use `Cmd` where it says `Ctrl`.
 | `Ctrl+Shift+A` | Inbox |
 | `Ctrl+Shift+L` | Library |
 | `Ctrl+Shift+D` | Dashboards |
+| `Ctrl+Shift+U` | Usage: cost and tokens per agent, space and day |
 | `Ctrl+Shift+Y` | Activity drawer for the focused agent (`Cmd` on macOS) |
 | `Ctrl+,` | Settings |
 | `F2` | Rename the focused agent, or change its role |
@@ -264,6 +284,11 @@ All other keys go straight to Claude Code.
 No. The log is built from Claude Code's hook events, and for outside sessions from Claude's own transcript files.
 CC-Dashboard never calls a model to write or read it.
 
+### Is the cost in the Usage view what I pay?
+
+No. It is an API-equivalent estimate: Claude Code's own figure for what the same tokens would cost at API prices.
+On a subscription you pay your plan. The figure is still useful for comparing agents, spaces and days.
+
 ## How it works
 
 ```
@@ -280,6 +305,9 @@ CC-Dashboard never calls a model to write or read it.
 
 - **The core** is a long-lived local service. The app finds it through `~/.cc-dashboard/core.json` and starts it if it isn't running.
   It only listens on `127.0.0.1` and every request needs a random token from that file.
+- **Usage numbers come from the status line.** Each agent also starts with a status-line command. Claude Code sends it
+  the session's own numbers (context, cost, limits), which the core keeps. The command then prints your own status
+  line, unchanged, or a short default if you have none. Your settings files are still not edited.
 - **Status comes from Claude Code hooks.** Each agent starts as `claude --settings <hooks file> --session-id <id>`. Claude Code runs the
   hooks on every event (prompt sent, tool used, permission asked, turn done) and they report to the core. Your own settings aren't touched.
 - **Agents are resumable.** Each one has a fixed session id, so a stopped agent comes back with `claude --resume`.
@@ -333,8 +361,10 @@ Every push also runs [CI](.github/workflows/ci.yml) on Windows and Linux, and ke
 
 ## Roadmap
 
+- **Done (0.4):** exact context use from the status line, the usage meter and Usage view, subagent cards.
+- **Done (0.3):** subagents and the activity log, sessions started outside the app, Take over.
 - **Done (0.2):** session roles, the project grid, Allow / Always / Deny and the Inbox, the board, the library, dashboards, settings with light and dark themes.
-- **Next:** task routing across agents, git worktrees per agent, a review step before changes land, usage insight.
+- **Next:** task routing across agents, git worktrees per agent, a review step before changes land.
 - **Later:** macOS and Linux builds.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).

@@ -1,6 +1,6 @@
 'use strict';
 // Outside sessions end to end: a real core process, a temp CLAUDE_CONFIG_DIR with running-session
-// files written by live child processes (tests/fake-claude-registry.js), fixture transcripts, and
+// files written by live child processes (tests/fake-claude-registry/claude.js), fixture transcripts, and
 // takeOver resuming the conversation with tests/fake-claude.js (via the argv-logging wrapper).
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,7 +10,7 @@ const path = require('path');
 const { startCore, claudeCmd, waitFor, argvLog, FIXTURES, REPO } = require('./helpers');
 const { projectDirName } = require('../../packages/core/src/transcript');
 
-const FAKE_REG = path.join(REPO, 'tests', 'fake-claude-registry.js');
+const FAKE_REG = path.join(REPO, 'tests', 'fake-claude-registry', 'claude.js');
 const SESSIONS = path.join(REPO, 'tests', 'fixtures', 'sessions');
 const WRAPPED = claudeCmd(path.join(FIXTURES, 'wrapped-claude.js'));
 // Take over reads the process with PowerShell on Windows, which can be slow to start: give it what the app gives it.
@@ -90,7 +90,7 @@ test('an outside session is listed with its state, space and transcript activity
 
   // A subagent appears: subagent.updated, and the session counts it.
   fs.mkdirSync(subDir, { recursive: true });
-  fs.writeFileSync(path.join(subDir, 'agent-ab12.meta.json'), JSON.stringify({ agentType: 'Explore', description: 'Find token call sites', requestShape: 'background' }));
+  fs.writeFileSync(path.join(subDir, 'agent-ab12.meta.json'), JSON.stringify({ agentType: 'Explore', description: 'Find token call sites', requestShape: 'background', model: 'claude-haiku-4-5-20251001' }));
   fs.writeFileSync(path.join(subDir, 'agent-ab12.jsonl'), JSON.stringify({ type: 'assistant', isSidechain: true, agentId: 'ab12', timestamp: new Date().toISOString(),
     message: { content: [{ type: 'tool_use', id: 'toolu_g', name: 'Grep', input: { pattern: 'token' } }] } }) + '\n');
   const up = await waitFor(() => subUpdates.find((u) => u.agentId === s.id && u.subagent.id === 'ab12' && u.subagent.tool === 'Grep'), { what: 'subagent.updated' });
@@ -98,6 +98,7 @@ test('an outside session is listed with its state, space and transcript activity
   assert.equal(up.subagent.type, 'Explore');
   assert.equal(up.subagent.state, 'running');
   assert.equal(up.subagent.background, true);
+  assert.equal(up.subagent.model, 'claude-haiku-4-5-20251001', 'M4: the model from meta.json');
   assert.equal(up.subagent.detail, 'token');
   await waitFor(() => changed.some((c) => c.sessions.some((x) => x.id === s.id && x.subagents.running === 1 && x.subagents.total === 1)), { what: 'subagent count' });
   const subs = await core.client.call('subagents.list', { agentId: s.id });

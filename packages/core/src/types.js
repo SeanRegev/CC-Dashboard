@@ -14,12 +14,39 @@
  * @property {string} [lastPrompt]
  * @property {{tools:number, turns:number, errors:number, subagents:number}} counts
  * @property {string[]} files
- * @property {{total:number, context:number, contextPct:number, model:string}} usage
+ * @property {AgentUsage} usage
  * @property {Array<[number,string]>} history
  * @property {number} updatedAt
  * @property {number} [needsSince]
  * @property {{running: number, total: number}} [subagents]  (v3)
  * @property {string} [askedBy]     (v3) Subagent id the permission prompt is for
+ *
+ * @typedef {Object} AgentUsage     see protocol.js (v4 adds contextWindow, costUsd, source)
+ * @property {number} total
+ * @property {number} context
+ * @property {number} contextPct
+ * @property {string} model
+ * @property {number} [contextWindow]
+ * @property {number} [costUsd]
+ * @property {'statusline'|'transcript'} [source]
+ *
+ * @typedef {Object} UsageLimit     (v4) see protocol.js
+ * @property {number} usedPct
+ * @property {number} resetsAt      ms epoch
+ *
+ * @typedef {Object} UsageTotals    (v4) see protocol.js
+ * @property {number} costUsd
+ * @property {number} inputTokens
+ * @property {number} outputTokens
+ * @property {string} [name]
+ * @property {string} [spaceId]
+ *
+ * @typedef {Object} Usage          (v4) see protocol.js
+ * @property {{fiveHour?: UsageLimit, sevenDay?: UsageLimit, updatedAt: number, fromAgentId?: string}} limits
+ * @property {Record<string, UsageTotals>} byAgent
+ * @property {Record<string, UsageTotals>} bySpace
+ * @property {Record<string, UsageTotals>} byDay
+ * @property {number} updatedAt
  *
  * @typedef {Object} Subagent       (v3) see protocol.js
  * @property {string} id
@@ -27,6 +54,7 @@
  * @property {string} title
  * @property {string} type
  * @property {'running'|'done'|'failed'|'stopped'} state
+ * @property {string} [model]       (v4)
  * @property {boolean} background
  * @property {string} [tool]
  * @property {string} [detail]

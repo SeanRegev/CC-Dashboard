@@ -64,7 +64,7 @@ export function segmented(name, options, value) {
 
 /**
  * New-agent dialog.
- * @param {{spaces:any[], entries:any[], spaceId:string|null, mod:string}} s
+ * @param {{spaces:any[], entries:any[], spaceId:string|null, mod:string, prompt?:string, warning?:HTMLElement|null}} s  warning (v4): shown above the form error
  * @param {(params:{spaceId:string, name:string, prompt:string, model:string, mode:string, worktree:boolean, role?:{id:string,label:string,emoji:string}}) => Promise<void>} onCreate
  */
 export function openNewAgentDialog(s, onCreate) {
@@ -111,6 +111,7 @@ export function openNewAgentDialog(s, onCreate) {
         h('span', { class: 'hint' }, 'Ask: approve each tool. Accept edits: file edits go through. Plan: read-only planning.')),
       h('label', { class: 'check disabled', title: 'Available in milestone 3' }, worktree,
         h('span', null, 'Own git worktree'), h('span', { class: 'soon' }, 'coming soon')),
+      s.warning || null, // v4: e.g. the 5-hour limit is nearly used up (components/usage.js limitWarning)
       err),
     h('div', { class: 'modal-foot' },
       h('button', { type: 'button', class: 'btn ghost', onclick: () => close() }, 'Cancel'),
