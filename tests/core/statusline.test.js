@@ -343,3 +343,11 @@ test('prepare: our settings with the user\'s display options, and the relay env;
   const run = JSON.parse(user.env.CC_STATUSLINE);
   assert.ok(run.command === 'echo hi' || (run.args && run.args.includes('echo hi')), JSON.stringify(run));
 });
+
+test('QA: hooks under PowerShell are called with &; in bash $ and backticks in the path do not expand', () => {
+  const ps = buildSettings('C:\\my home\\cc-hook.cmd', { shell: 'powershell' });
+  assert.equal(ps.hooks.Stop[0].hooks[0].command, "& 'C:/my home/cc-hook.cmd' Stop");
+  const sh = buildSettings('C:\\my home\\cc-hook.cmd');
+  assert.equal(sh.hooks.Stop[0].hooks[0].command, '"C:/my home/cc-hook.cmd" Stop');
+  assert.equal(statusLineCommand('C:\\Users\\$USER\\a`b"c\\cc-statusline.cmd'), '"C:/Users/\\$USER/a\\`b\\"c/cc-statusline.cmd"');
+});
