@@ -23,6 +23,7 @@ import { createLibraryView } from './views/library.js';
 import { createDashboardsView } from './views/dashboards.js';
 import { createUsageView } from './views/usage.js';
 import { usageMeter, contextGauge, limitWarning } from './components/usage.js';
+import { formatCost } from './components/usage-logic.js';
 import { paneSubagentBar } from './components/subagent-cards.js';
 import { openSettingsDialog, openAgentEditDialog, applySettings, prepareNotification, appMenuButton } from './views/settings.js';
 
@@ -638,7 +639,7 @@ function renderPaneChrome(i, id) {
     h('span', { class: 'grow' }),
     mode ? h('span', { class: 'foot-item mode' }, mode) : null,
     contextGauge(usage), // M4 track B
-    h('span', { class: 'foot-item', title: `${usage.total || 0} tokens this session` }, h('span', { class: 'foot-num' }, formatTokens(usage.total)), ' tokens'),
+    h('span', { class: 'foot-item foot-total', title: `${usage.total || 0} tokens used in this whole session (input + output + cache writes), not the context size${usage.costUsd ? `. API-equivalent estimate: ${formatCost(usage.costUsd)}` : ''}` }, h('span', { class: 'foot-num' }, formatTokens(usage.total)), ' session total'),
     h('span', { class: 'foot-item model' }, modelLabel(usage.model || e.agent.model)));
 }
 

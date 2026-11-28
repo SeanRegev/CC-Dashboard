@@ -46,7 +46,7 @@ test('cards show role badge, name, space, activity, context % and open the agent
   assert.equal(card.name, 'refactor-auth');
   assert.equal(card.space, 'cc-dashboard');
   assert.match(card.activity, /Allow Bash/);
-  assert.match(card.pct, /^\d+%$/);
+  assert.match(card.pct, /^~?\d+(?:\.\d)?[kM]? \/ \d+(?:\.\d)?[kM] \(~?\d+%\)$/);
   assert.match(card.time, /m$/);
   assert.equal(await app.evaluate(`document.querySelector('.board-card[data-agent="old-spike"] .role-badge').textContent`), '🔭Research');
   await app.click('.board-card[data-agent="docs-pass"]');

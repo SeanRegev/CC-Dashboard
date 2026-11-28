@@ -1,1 +1,40 @@
 /* Usage meter, context gauge, limit warning (M4 track B). */
+.usage-meter {
+  flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; height: 24px; padding: 0 9px;
+  border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 12px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; -webkit-app-region: no-drag; overflow: hidden; text-overflow: ellipsis;
+}
+.usage-meter .um-short { display: none; }
+.usage-meter.lvl-mid { color: var(--needs-ink); background: rgba(var(--needs-rgb), .1); }
+.usage-meter.lvl-high { color: var(--danger-text); background: rgba(var(--danger-rgb), .08); font-weight: 600; }
+@media (max-width: 1400px) {
+  .usage-meter .um-full { display: none; }
+  .usage-meter .um-short { display: inline; }
+}
+/* the top bar is tight below 1300 px: the view buttons and the pill give up some padding; at 1024 the meter shows the 5-hour part only and the space name goes */
+@media (max-width: 1300px) {
+  .top-actions { gap: 4px; }
+  .view-switch { gap: 1px; }
+  .view-switch button { padding: 0 4px; gap: 3px; font-size: 11.5px; }
+  .needs-pill { padding: 0 6px; font-size: 11px; }
+  .usage-meter { padding: 0 6px; }
+}
+@media (max-width: 1100px) {
+  .usage-meter .um-wk { display: none; }
+  .topbar .crumb { display: none; }
+}
+
+.gauge-text { white-space: nowrap; min-width: 0; }
+.workspace.split .gauge-text { font-size: 11px; }
+
+.limit-warning {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: rgba(var(--danger-rgb), .1); border: 1px solid rgba(var(--danger-rgb), .45); color: var(--text); font-size: 13px;
+}
+.limit-warning-mark {
+  flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--danger); color: var(--panel);
+  font-weight: 700; font-size: 12px; line-height: 18px; text-align: center;
+}
+.tile-ctx .gauge-pct, .bc-ctx .gauge-pct { white-space: nowrap; min-width: 0; }
+.foot-total { color: var(--muted); white-space: nowrap; }
+@media (max-width: 1500px) { .workspace.split .foot-total { display: none; } }
