@@ -14,6 +14,8 @@
 //      shell like Claude Code runs hooks, with a JSON payload on stdin, and checks the payload
 //      reaches a local HTTP server. On Windows the exe is a GUI-subsystem program started from a
 //      .cmd file: this is the path every hook takes in the installed app.
+//    - Status line (M4): the same for the status-line relay: it posts the snapshot and prints the
+//      user's own line (or the default), nothing else.
 // Exits 1 with a clear list of problems on failure.
 'use strict';
 const fs = require('fs');
@@ -105,6 +107,7 @@ async function main() {
   if (!noProbe && problems.length === 0) {
     probe(exe, unpacked);
     await probeHook(exe, unpacked);
+    await probeStatusLine(exe, unpacked);
   }
 
 }
@@ -194,6 +197,52 @@ async function probeHook(exe, unpacked) {
     ok('hook launcher runs the packaged hook.js and delivers the payload (as Claude Code runs hooks)');
   } else {
     problems.push(`hook probe failed: exit ${result.code}, output ${JSON.stringify(result.out.slice(0, 300))}, received ${JSON.stringify(got)}`);
+  }
+}
+
+/**
+ * (M4) Runs the packaged status-line relay through its launcher, started by the shell like Claude Code
+ * does: it must post the snapshot to the core and print the user's own line (here a Node one-liner that
+ * echoes its stdin), then the default line when there is none. Nothing else on stdout.
+ */
+async function probeStatusLine(exe, unpacked) {
+  const { launcherText, statusLauncherName } = require(path.join(ROOT, 'packages', 'core', 'src', 'hooks-settings.js'));
+  const relay = path.join(unpacked, 'packages', 'core', 'src', 'statusline-relay.js');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-pkg-statusline-'));
+  const launcher = path.join(tmp, statusLauncherName());
+  fs.writeFileSync(launcher, launcherText(exe, relay), { mode: 0o755 });
+  /** @type {string[]} */
+  const bodies = [];
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { bodies.push(Buffer.concat(chunks).toString('utf8')); res.end('{"ok":true}'); });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', () => r(null)));
+  const port = /** @type {any} */ (server.address()).port;
+  const payload = JSON.stringify({ session_id: 'probe', model: { id: 'claude-probe', display_name: 'Probe' }, context_window: { used_percentage: 7 }, note: 'ünïcode ✓' });
+  /** @param {Record<string, string>} extra @returns {Promise<any>} */
+  const run = (extra) => new Promise((resolve) => {
+    const env = { ...process.env, CC_AGENT_ID: 'probe-agent', CC_CORE_URL: `http://127.0.0.1:${port}`, CC_TOKEN: 'probe-token', ...extra };
+    delete env.ELECTRON_RUN_AS_NODE; // the launcher sets it, for the relay only
+    if (!extra.CC_STATUSLINE) delete env.CC_STATUSLINE;
+    const child = spawn(`"${launcher.replace(/\\/g, '/')}"`, { shell: true, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const out = [];
+    child.stdout.on('data', (d) => out.push(d));
+    child.stderr.on('data', () => {});
+    const timer = setTimeout(() => { child.kill(); resolve({ code: 'timeout', out: Buffer.concat(out).toString('utf8') }); }, 30000);
+    child.on('error', (e) => { clearTimeout(timer); resolve({ code: 'error', out: e.message }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code, out: Buffer.concat(out).toString('utf8') }); });
+    child.stdin.end(payload);
+  });
+  const user = await run({ CC_STATUSLINE: JSON.stringify({ file: process.execPath, args: ['-e', 'process.stdin.pipe(process.stdout)'] }) });
+  const plain = await run({});
+  server.close();
+  fs.rmSync(tmp, { recursive: true, force: true });
+  if (user.code === 0 && user.out === payload && plain.code === 0 && plain.out === 'Probe · ctx 7%\n' && bodies.length === 2 && bodies.every((b) => b === payload)) {
+    ok('status-line launcher runs the packaged relay: posts the snapshot, prints the user\'s line, else the default');
+  } else {
+    problems.push(`status-line probe failed: user ${JSON.stringify(user).slice(0, 300)}, default ${JSON.stringify(plain).slice(0, 300)}, posted ${bodies.length}`);
   }
 }
 

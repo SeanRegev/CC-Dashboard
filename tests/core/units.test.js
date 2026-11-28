@@ -124,15 +124,17 @@ test('usage: incremental, deduplicated by message id, partial lines wait', (t) =
     + reply('m1', 'claude-opus-4', { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 400 })
     + reply('m1', 'claude-opus-4', { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 400 })
     + 'not json\n');
-  assert.deepEqual(r.read(file), { total: 550, context: 1500, contextPct: 0.75, model: 'claude-opus-4' });
+  // v4: the window and the source are part of the estimate (tests/core/usage-window.test.js has the rules).
+  const est = { contextWindow: 200000, source: 'transcript' };
+  assert.deepEqual(r.read(file), { total: 550, context: 1500, contextPct: 0.75, model: 'claude-opus-4', ...est });
   const line = reply('m2', 'claude-opus-4[1m]', { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 99990, cache_creation_input_tokens: 0 });
   fs.appendFileSync(file, line.slice(0, 20)); // half a line
   assert.equal(r.read(file).total, 550);
   fs.appendFileSync(file, line.slice(20));
-  assert.deepEqual(r.read(file), { total: 565, context: 100000, contextPct: 10, model: 'claude-opus-4[1m]' });
+  assert.deepEqual(r.read(file), { total: 565, context: 100000, contextPct: 10, model: 'claude-opus-4[1m]', ...est, contextWindow: 1000000 });
   // Replaced by a shorter file: start over.
   fs.writeFileSync(file, reply('m9', 'm', { input_tokens: 1, output_tokens: 1 }));
-  assert.deepEqual(r.read(file), { total: 2, context: 1, contextPct: 0, model: 'm' });
+  assert.deepEqual(r.read(file), { total: 2, context: 1, contextPct: 0, model: 'm', ...est });
 });
 
 test('usage: context percentage caps at 100', (t) => {
@@ -140,7 +142,9 @@ test('usage: context percentage caps at 100', (t) => {
   t.after(() => rmrf(dir));
   const file = path.join(dir, 't.jsonl');
   fs.writeFileSync(file, reply('x', 'sonnet', { input_tokens: 300000, output_tokens: 0 }));
-  assert.equal(new UsageReader().read(file).contextPct, 100);
+  // v4: over 200k means the window is bigger (1M), so 30%; a known window caps at 100.
+  assert.equal(new UsageReader().read(file).contextPct, 30);
+  assert.equal(new UsageReader().read(file, { windowFor: () => 200000 }).contextPct, 100);
 });
 
 test('command: CC_CLAUDE is split like a quoted command line', () => {
