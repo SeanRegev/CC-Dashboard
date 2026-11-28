@@ -216,6 +216,12 @@ function statusSnapshot(pct) {
     p.context_window.total_input_tokens = 1000 * n;
     p.context_window.total_output_tokens = 100 * n;
     p.cost.total_cost_usd = Math.round(0.01 * n * 100) / 100;
+    // the fixture's reset times are in the past (the UI says "reset"): move them ahead, 5 h and 7 days
+    if (p.rate_limits) {
+      const nowS = Math.floor(Date.now() / 1000);
+      if (p.rate_limits.five_hour) p.rate_limits.five_hour.resets_at = nowS + 5 * 3600;
+      if (p.rate_limits.seven_day) p.rate_limits.seven_day.resets_at = nowS + 7 * 86400;
+    }
   }
   return p;
 }
