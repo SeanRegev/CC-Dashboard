@@ -6,6 +6,7 @@ import { roleBadge } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
 import { subagentBadge } from '../components/activity.js';
+import { sidebarSubagents } from '../components/subagent-cards.js';
 import { groupExternal, outsideBlock, otherFoldersBlock } from '../components/external.js';
 
 const ALL_KEY = 'cc.sidebar.allSpaces';
@@ -74,7 +75,7 @@ export function renderSidebar(root, s, act, ctx) {
       h('span', { class: 'card-activity', title: describeActivity(e.status) }, describeActivity(e.status))),
     ctx ? approvalButtons(ctx, e, { compact: true }) : null);
     if (ctx) attachAgentMenu(el, ctx, id);
-    return h('li', null, el);
+    return h('li', null, el, ctx ? sidebarSubagents(ctx, id) : null); // M4: child cards
   };
   const cards = agents.map(card);
   // M3 Outside UI: outside sessions per space ("Outside the app (N)") and the ones in no space ("Other folders")

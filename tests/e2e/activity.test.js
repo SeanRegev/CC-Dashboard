@@ -161,43 +161,43 @@ test('a long log: the newest page first, "Load older" adds a page, the DOM stays
   await app.press('Escape');
 });
 
-test('grid tile: a strip with the running subagents, done count, and a needs-you chip that stands out', async () => {
+test('grid tile: a row of subagent cards: running ones, a done count, and a needs-you card that stands out', async () => {
   await app.press('g', { ctrl: true, shift: true });
-  await app.waitFor(`document.querySelector('.tile[data-agent="refactor-auth"] .tile-subs .sub-chip')`);
+  await app.waitFor(`document.querySelector('.tile[data-agent="refactor-auth"] .tile-subs .sub-card')`);
   const tile = '.tile[data-agent="refactor-auth"]';
-  assert.equal(await count(`${tile} .sub-chip`), 1, 'only running subagents get a chip');
-  assert.match(await text(`${tile} .sub-chip`), /🔧.*Update middleware tests/);
-  assert.equal(await count(`${tile} .sub-chip.needs`), 1);
-  assert.match(await text(`${tile} .sub-chip.needs`), /needs you/);
-  assert.equal(await text(`${tile} .sub-pill.done`), '✓ 1');
+  assert.equal(await count(`${tile} .sub-card`), 1, 'only running subagents get a card; the done one is folded');
+  assert.match(await text(`${tile} .sub-card`), /🔧.*Update middleware tests/);
+  assert.equal(await count(`${tile} .sub-card.needs`), 1);
+  assert.match(await text(`${tile} .sub-card.needs`), /needs you/);
+  assert.equal(await text(`${tile} .sub-pill.done`), '✓ 1 done');
   assert.equal(await app.evaluate(`document.querySelector(${q(`${tile} .tile-subs`)}).previousElementSibling.className`), 'tile-head', 'right under the header');
   // fix-flaky-tests: 1 running, 1 done, 1 failed
   const t2 = '.tile[data-agent="fix-flaky-tests"]';
-  assert.match(await text(`${t2} .sub-chip`), /🔭.*Map checkout fixtures/);
-  assert.equal(await text(`${t2} .sub-pill.done`), '✓ 1');
-  assert.equal(await text(`${t2} .sub-pill.failed`), '✗ 1');
+  assert.match(await text(`${t2} .sub-card.st-running`), /🔭.*Map checkout fixtures/);
+  assert.equal(await text(`${t2} .sub-pill.done`), '✓ 1 done');
+  assert.equal(await count(`${t2} .sub-card.st-failed`), 1, 'a failed subagent keeps its card');
   // an agent with no subagents has no strip
   assert.equal(await app.evaluate(`document.querySelector('.tile[data-agent="docs-pass"] .tile-subs').hidden`), true);
   // click: the drawer, on that subagent
-  await app.click(`${tile} .sub-chip`);
+  await app.click(`${tile} .sub-card`);
   await app.waitFor(`!document.getElementById('activity-drawer').hidden`);
   assert.deepEqual(await drawerFor(), { agentId: 'refactor-auth', subagentId: RA_SUB2 });
   await app.waitFor(`document.querySelector('#activity-drawer .act-item.on[data-filter="${RA_SUB2}"]')`);
   assert.equal((await app.evaluate('window.__cc.snapshot()')).view, 'grid');
 });
 
-test('a subagent that starts or ends shows in the strip at once', async () => {
+test('a subagent that starts or ends shows in the tile row at once', async () => {
   const t = '.tile[data-agent="fix-flaky-tests"]';
-  await app.waitFor(`document.querySelector(${q(`${t} .sub-chip`)})`);
+  await app.waitFor(`document.querySelector(${q(`${t} .sub-card`)})`);
   const subs = mock.activity.subagents.get('fix-flaky-tests');
   subs.push({ id: 'b2e1d3f0c2a8b0004', agentId: 'fix-flaky-tests', title: 'Scan the pricing page', type: 'Plan', state: 'running', background: false, counts: { tools: 0, errors: 0 }, startedAt: Date.now(), updatedAt: Date.now() });
   mock.broadcast('subagent.updated', { agentId: 'fix-flaky-tests', subagent: { ...subs[3] } });
-  await app.waitFor(`document.querySelectorAll(${q(`${t} .sub-chip`)}).length === 2`);
-  assert.match(await text(`${t} .sub-chip:nth-child(2)`), /📐.*Scan the pricing page/);
+  await app.waitFor(`document.querySelectorAll(${q(`${t} .sub-card.st-running`)}).length === 2`);
+  assert.match(await text(`${t} .sub-card:nth-child(2)`), /📐.*Scan the pricing page/);
   subs[3].state = 'done';
   mock.broadcast('subagent.updated', { agentId: 'fix-flaky-tests', subagent: { ...subs[3] } });
-  await app.waitFor(`document.querySelectorAll(${q(`${t} .sub-chip`)}).length === 1 && document.querySelector(${q(`${t} .sub-pill.done`)})`);
-  assert.equal(await text(`${t} .sub-pill.done`), '✓ 2');
+  await app.waitFor(`document.querySelectorAll(${q(`${t} .sub-card.st-running`)}).length === 1 && document.querySelector(${q(`${t} .sub-pill.done`)})`);
+  assert.equal(await text(`${t} .sub-pill.done`), '✓ 2 done');
   subs.pop(); // leave the seed as it was
 });
 
