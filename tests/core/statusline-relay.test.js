@@ -4,6 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const net = require('net');
 const path = require('path');
@@ -118,6 +119,27 @@ test('a user command that cannot start, or a broken CC_STATUSLINE, never hangs o
   // Run inside a user command again (it never should be): no loop, the default only.
   const nested = await runRelay({ CC_STATUSLINE: runFor('echo loop'), CC_STATUSLINE_DEPTH: '1' });
   assert.equal(nested.stdout, 'Haiku 5.5 · ctx 10% · 5h 62%\n');
+});
+
+test('at its timeout the user command is ended with everything it started', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-sl-tree-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const pidFile = path.join(dir, 'grandchild.pid');
+  // The user's command starts a long-lived grandchild and waits on it, like a shell running a script.
+  const parent = path.join(dir, 'parent.js');
+  fs.writeFileSync(parent, `const { spawn } = require('child_process');
+const c = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore', detached: process.platform === 'win32' }); // outside node's kill-on-close job, like a bash child
+require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));
+setTimeout(() => {}, 60000);`);
+  const r = await runRelay({ CC_STATUSLINE: JSON.stringify({ file: process.execPath, args: [parent], timeoutMs: 1500 }) });
+  assert.equal(r.code, 1);
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  const alive = () => { try { process.kill(pid, 0); return true; } catch (e) { return /** @type {any} */ (e).code === 'EPERM'; } };
+  const end = Date.now() + 5000;
+  while (alive() && Date.now() < end) await new Promise((res) => setTimeout(res, 100));
+  const still = alive();
+  if (still) try { process.kill(pid); } catch { /* gone */ }
+  assert.equal(still, false, 'the grandchild was ended too');
 });
 
 test('a user command that hangs is stopped at its timeout', async () => {

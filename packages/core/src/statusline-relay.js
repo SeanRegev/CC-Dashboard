@@ -17,7 +17,7 @@
  * No dependencies, so it starts fast.
  */
 const http = require('http');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 /** POST timeout, and the hard cap on the whole relay when there is no user command. */
 const POST_TIMEOUT_MS = 2000;
@@ -130,8 +130,9 @@ function runUser(run, input) {
   let child;
   try {
     child = run.file
-      ? spawn(run.file, Array.isArray(run.args) ? run.args.map(String) : [], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-      : spawn(String(run.command), { shell: run.shell === undefined ? true : run.shell, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      // detached (POSIX): its own process group, so a timeout can end what it started too
+      ? spawn(run.file, Array.isArray(run.args) ? run.args.map(String) : [], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' })
+      : spawn(String(run.command), { shell: run.shell === undefined ? true : run.shell, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' });
   } catch {
     exitCode = 1;
     lineFinished();
@@ -142,7 +143,7 @@ function runUser(run, input) {
   let ended = false;
   const timeoutMs = Number(run.timeoutMs) > 0 ? Number(run.timeoutMs) : USER_TIMEOUT_MS;
   const timer = setTimeout(() => {
-    try { child.kill(); } catch { /* gone */ }
+    killTree(child);
     end(1);
   }, timeoutMs);
   timer.unref();
@@ -184,4 +185,18 @@ function defaultLine(input) {
   const five = rl.five_hour && typeof rl.five_hour === 'object' ? rl.five_hour.used_percentage : undefined;
   if (typeof five === 'number' && Number.isFinite(five)) parts.push(`5h ${Math.round(five)}%`);
   return parts.length ? parts.join(' · ') + '\n' : '';
+}
+
+/**
+ * End the user's command and everything it started (a shell's grandchildren would otherwise linger):
+ * taskkill /T on Windows, the process group elsewhere.
+ * @param {import('child_process').ChildProcess} child
+ */
+function killTree(child) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 3000 });
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch { /* gone */ }
+  try { child.kill('SIGKILL'); } catch { /* gone */ }
 }
