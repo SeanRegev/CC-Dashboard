@@ -22,6 +22,7 @@ const { baseCommand, claudeArgs, spawnSpec } = require('./command');
 const { Library } = require('./library');
 const { Activity } = require('./activity');
 const { External } = require('./external');
+const { StatusLine } = require('./statusline');
 const { Dashboards } = require('./dashboards');
 const { parsePrompt } = require('./prompt');
 
@@ -112,6 +113,7 @@ class Core extends EventEmitter {
     this.dashboards = new Dashboards(this);
     this.activity = new Activity(this);
     this.external = new External(this);
+    this.statusline = new StatusLine(this); // v4: status-line relay -> usage (track A)
     /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
     this.promptTimers = new Map();
   }
@@ -139,6 +141,7 @@ class Core extends EventEmitter {
     this.ticker.unref();
     this.activity.start();
     this.external.start();
+    this.statusline.start();
   }
 
   /** @param {string} url @param {string} token */
@@ -240,6 +243,17 @@ class Core extends EventEmitter {
       // Keep the turn start for alert(), which reads it from the "before" runtime.
       return out;
     }, { event });
+    return true;
+  }
+
+  /**
+   * v4: a status-line update from the relay (POST /statusline). Never throws into the relay.
+   * @param {string} id @param {any} payload
+   * @returns {boolean} false if the agent is unknown
+   */
+  handleStatusLine(id, payload) {
+    if (!this.agents.has(id)) return false;
+    try { this.statusline.handle(id, payload); } catch { /* the status line never breaks the core */ }
     return true;
   }
 
@@ -690,6 +704,7 @@ class Core extends EventEmitter {
     const promoted = this.fixRoles();
     this.store.saveNow();
     try { this.activity.onRemove(agent.id); } catch { /* best effort */ }
+    try { this.statusline.onRemove(agent.id); } catch { /* best effort */ }
     this.broadcast('agent.removed', { id: agent.id });
     for (const a of promoted) this.broadcast('agent.updated', { agent: a });
     return true;
@@ -817,6 +832,7 @@ class Core extends EventEmitter {
     try { this.dashboards.shutdown(); } catch { /* best effort */ }
     try { this.activity.shutdown(); } catch { /* best effort */ }
     try { this.external.shutdown(); } catch { /* best effort */ }
+    try { this.statusline.shutdown(); } catch { /* best effort */ }
     try { this.store.saveNow(); } catch { /* best effort */ }
     for (const [id, term] of this.terms) {
       this.userStopped.add(id);

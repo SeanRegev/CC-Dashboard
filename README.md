@@ -229,6 +229,7 @@ On macOS use `Cmd` where it says `Ctrl`.
 | `Ctrl+Shift+A` | Inbox |
 | `Ctrl+Shift+L` | Library |
 | `Ctrl+Shift+D` | Dashboards |
+| `Ctrl+Shift+U` | Usage: cost and tokens per agent, space and day |
 | `Ctrl+Shift+Y` | Activity drawer for the focused agent (`Cmd` on macOS) |
 | `Ctrl+,` | Settings |
 | `F2` | Rename the focused agent, or change its role |

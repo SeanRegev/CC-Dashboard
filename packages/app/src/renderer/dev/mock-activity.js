@@ -11,6 +11,7 @@
  *   landing-copy     1 subagent:  "Check headline lengths" (general, running)
  *   outside sessions ext:…-vscode (cc-dashboard, working, VS Code, 1 subagent), ext:…-cli (cc-dashboard, idle, cli),
  *                    ext:…-notes (a folder that is no space, idle)
+ * v4: each subagent has a model (Explore → Haiku, Plan → Opus, general → its session's model).
  * Without MOCK_STATIC, running subagents and the working outside session log a new tool every tick.
  */
 
@@ -29,6 +30,9 @@ const SUBAGENT_SEED = /** @type {Record<string, Array<[string, string, string, b
     ['c3a2e4b1d3f9c0001', 'Check headline lengths', 'general-purpose', true, 'running', ''],
   ],
 });
+
+/** v4: the model a seeded subagent runs on, by type (else its session's model). @type {Record<string, string>} */
+const TYPE_MODEL = { Explore: 'claude-haiku-4-5-20251001', Plan: 'claude-opus-4-1-20250805' };
 
 /** Tool lines a running subagent cycles through, by type. */
 const TOOLS = /** @type {Record<string, Array<[string, string]>>} */ ({
@@ -95,7 +99,8 @@ function activityMethods(ctx) {
     const e = ctx.state.agents.get(agentId);
     if (!e) continue;
     const subs = defs.map(([id, title, type, background, state, summary]) => ({
-      id, agentId, title, type, state, background, counts: { tools: 0, errors: 0 }, summary: summary || undefined, startedAt: 0, updatedAt: 0,
+      id, agentId, title, type, state, background, model: TYPE_MODEL[type] || e.agent.model || undefined,
+      counts: { tools: 0, errors: 0 }, summary: summary || undefined, startedAt: 0, updatedAt: 0,
     }));
     subagents.set(agentId, subs);
     logs.set(agentId, seedLog(agentId, e.agent.prompt || e.status.lastPrompt || 'Work on it', subs, now - 30 * 60e3));
@@ -136,7 +141,7 @@ function activityMethods(ctx) {
     name: 'notes', state: 'idle', lastPrompt: 'Summarise this week', entrypoint: 'cli', version: '2.1.330',
     startedAt: now - 5 * 3600e3, updatedAt: now - 3 * 3600e3, subagents: { running: 0, total: 0 } });
   for (const x of external) {
-    const subs = x.subagents.total ? [{ id: 'd4b3f5c2e4a0d0001', agentId: x.id, title: 'Collect review threads', type: 'Explore', state: 'running', background: false,
+    const subs = x.subagents.total ? [{ id: 'd4b3f5c2e4a0d0001', agentId: x.id, title: 'Collect review threads', type: 'Explore', state: 'running', background: false, model: TYPE_MODEL.Explore,
       counts: { tools: 0, errors: 0 }, startedAt: 0, updatedAt: 0 }] : [];
     subagents.set(x.id, subs);
     logs.set(x.id, seedLog(x.id, x.lastPrompt, subs, x.startedAt));

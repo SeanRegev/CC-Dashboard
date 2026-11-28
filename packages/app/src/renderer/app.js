@@ -7,7 +7,7 @@ import { CoreClient } from './client.js';
 import { h, mount, icon, kbd } from './dom.js';
 import {
   shortcutFor, cycleIndex, toggleSplit, showInPane, closeInLayout, stateLabel, describeActivity,
-  contextPercent, gaugeLevel, formatTokens, modelLabel, sortAgents, spaceCounts,
+  formatTokens, modelLabel, sortAgents, spaceCounts,
 } from './logic.js';
 import { TerminalView } from './terminal.js';
 import { renderSidebar } from './views/sidebar.js';
@@ -21,6 +21,9 @@ import { createBoardView } from './views/board.js';
 import { createInboxView } from './views/inbox.js';
 import { createLibraryView } from './views/library.js';
 import { createDashboardsView } from './views/dashboards.js';
+import { createUsageView } from './views/usage.js';
+import { usageMeter, contextGauge, limitWarning } from './components/usage.js';
+import { paneSubagentBar } from './components/subagent-cards.js';
 import { openSettingsDialog, openAgentEditDialog, applySettings, prepareNotification, appMenuButton } from './views/settings.js';
 
 /** @type {{platform:string, getConnection:() => Promise<{port:number, token:string}|null>, notify:(t:string, b:string, id?:string) => Promise<any>, pickFolder:() => Promise<string|null>, onSelectAgent:(fn:(id:string)=>void) => any}} */
@@ -63,6 +66,8 @@ const S = {
   external: [],
   /** @type {{agentId: string, subagentId?: string}|null} v3: whose activity log the drawer shows */
   activityFor: null,
+  /** @type {any} v4: Usage (account limits, cost totals), null until usage.get answers */
+  usage: null,
 };
 /** @type {Set<(agentId: string, entries: any[]) => void>} v3: listeners for new activity lines */
 const activityListeners = new Set();
@@ -97,6 +102,8 @@ function scheduleRender() {
 async function loadAll() {
   const [spaces, list, external] = await Promise.all([client.call('spaces.list'), client.call('agents.list'),
     client.call('external.list').catch(() => [])]);
+  // v4: usage loads in the background like subagents (an older core has no usage.get: stays null).
+  client.call('usage.get').then((u) => { S.usage = u || null; scheduleRender(); }, () => {});
   S.spaces = spaces || [];
   S.entries = new Map((list || []).map((/** @type {any} */ e) => [e.agent.id, e]));
   S.external = Array.isArray(external) ? external : [];
@@ -200,6 +207,12 @@ client.on('external.changed', (/** @type {any} */ d) => {
     if (S.activityFor && S.activityFor.agentId === id) S.activityFor = null;
   }
   for (const id of now) if (!before.has(id)) loadSubagents(id).then(scheduleRender);
+  scheduleRender();
+});
+// ---- v4: usage ----
+client.on('usage.changed', (/** @type {any} */ d) => {
+  if (!d || !d.usage) return;
+  S.usage = d.usage;
   scheduleRender();
 });
 client.on('agent.exit', (/** @type {any} */ d) => {
@@ -320,7 +333,7 @@ function doToggleSplit() {
   focusTerminal();
 }
 
-/** @type {Array<{root:HTMLElement, head:HTMLElement, host:HTMLElement, foot:HTMLElement, ro:ResizeObserver}>} */
+/** @type {Array<{root:HTMLElement, head:HTMLElement, sub:HTMLElement, host:HTMLElement, foot:HTMLElement, ro:ResizeObserver}>} */
 const paneEls = [];
 const workspace = /** @type {HTMLElement} */ (document.getElementById('workspace'));
 
@@ -328,9 +341,10 @@ const workspace = /** @type {HTMLElement} */ (document.getElementById('workspace
 function paneEl(i) {
   if (!paneEls[i]) {
     const head = h('div', { class: 'pane-head' });
+    const sub = h('div', { class: 'pane-sub' }); // M4: the subagent bar (track C)
     const host = h('div', { class: 'term-host' });
     const foot = h('div', { class: 'pane-foot' });
-    const root = h('section', { class: 'pane', dataset: { pane: String(i) } }, head, host, foot);
+    const root = h('section', { class: 'pane', dataset: { pane: String(i) } }, head, sub, host, foot);
     root.addEventListener('mousedown', () => {
       if (S.layout.focused !== i && i < S.layout.panes.length) { S.layout = { ...S.layout, focused: i }; markFocus(); scheduleRender(); }
     }, true);
@@ -344,7 +358,7 @@ function paneEl(i) {
       });
     });
     ro.observe(host);
-    paneEls[i] = { root, head, host, foot, ro };
+    paneEls[i] = { root, head, sub, host, foot, ro };
   }
   return paneEls[i];
 }
@@ -466,6 +480,7 @@ function renderChrome() {
   const split = S.layout.panes.length > 1;
   const needs = entries.filter((e) => e.status && e.status.state === 'needs_you').length;
   mount(els.actions,
+    usageMeter(ctx), // M4 track B
     viewSwitch(needs),
     needs ? h('button', { class: 'needs-pill', title: 'Open the agent that has waited longest', onclick: openNextNeedy }, `◆ ${needs} need${needs === 1 ? 's' : ''} you`) : null,
     h('button', { class: `icon-btn${split ? ' on' : ''}`, id: 'btn-split', title: `${split ? 'Unsplit' : 'Split'} (${MOD}+\\)`, onclick: doToggleSplit }, icon(split ? 'unsplit' : 'split')),
@@ -491,12 +506,13 @@ function renderChrome() {
 
 // ---------- views (Grid, Board, Inbox, Library, Dashboards) ----------
 /** @type {import('./context.js').ViewName[]} */
-const VIEW_NAMES = ['terminals', 'grid', 'board', 'inbox', 'library', 'dashboards'];
+const VIEW_NAMES = ['terminals', 'grid', 'board', 'inbox', 'library', 'dashboards', 'usage'];
 const VIEW_FACTORIES = /** @type {Record<string, (ctx: any) => import('./context.js').View>} */ ({
   grid: createGridView, board: createBoardView, inbox: createInboxView, library: createLibraryView, dashboards: createDashboardsView,
+  usage: createUsageView,
 });
 const VIEW_LABELS = /** @type {Record<string, [string, string]>} */ ({
-  terminals: ['Terminals', 'T'], grid: ['Grid', 'G'], board: ['Board', 'B'], inbox: ['Inbox', 'A'], library: ['Library', 'L'], dashboards: ['Dashboards', 'D'],
+  terminals: ['Terminals', 'T'], grid: ['Grid', 'G'], board: ['Board', 'B'], inbox: ['Inbox', 'A'], library: ['Library', 'L'], dashboards: ['Dashboards', 'D'], usage: ['Usage', 'U'],
 });
 /** @type {Map<string, import('./context.js').View>} */
 const viewInstances = new Map();
@@ -569,6 +585,7 @@ const ctx = {
   openActivity: (agentId, subagentId) => { S.activityFor = { agentId, ...(subagentId ? { subagentId } : {}) }; scheduleRender(); },
   closeActivity: () => { S.activityFor = null; scheduleRender(); },
   onActivity: (fn) => { activityListeners.add(fn); return () => { activityListeners.delete(fn); }; },
+  usage: () => S.usage,
 };
 
 // M3 Activity UI: the drawer lives in the app grid, next to the main area.
@@ -593,6 +610,7 @@ function renderPaneChrome(i, id) {
     p.root.classList.add('is-empty');
     mount(p.head, h('span', { class: 'pane-title muted' }, split ? `Pane ${i + 1}` : ''), h('span', { class: 'grow' }), closePane);
     mount(p.foot);
+    mount(p.sub);
     if (S.loaded && !p.host.querySelector('.empty')) p.host.replaceChildren(emptyState());
     return;
   }
@@ -611,7 +629,7 @@ function renderPaneChrome(i, id) {
       : h('button', { class: 'btn primary small', title: 'Resume this session', onclick: () => rpc('agents.resume', { id: e.agent.id }) }, icon('play'), 'Resume'),
     closePane);
 
-  const pct = contextPercent(e.status && e.status.usage);
+  mount(p.sub, paneSubagentBar(ctx, e.agent.id)); // M4 track C
   const usage = (e.status && e.status.usage) || {};
   const mode = e.agent.mode === 'acceptEdits' ? 'Accept edits' : e.agent.mode === 'plan' ? 'Plan' : '';
   mount(p.foot,
@@ -619,10 +637,7 @@ function renderPaneChrome(i, id) {
     h('span', { class: 'foot-activity', title: describeActivity(e.status) }, describeActivity(e.status).replace(/^Done · /, '')),
     h('span', { class: 'grow' }),
     mode ? h('span', { class: 'foot-item mode' }, mode) : null,
-    h('span', { class: 'foot-item gauge', title: `Context window ${pct}% full` },
-      h('span', { class: 'gauge-label' }, 'Context'),
-      h('span', { class: `gauge-bar lvl-${gaugeLevel(pct)}` }, h('span', { class: 'gauge-fill', style: { width: `${pct}%` } })),
-      h('span', { class: 'gauge-pct' }, `${pct}%`)),
+    contextGauge(usage), // M4 track B
     h('span', { class: 'foot-item', title: `${usage.total || 0} tokens this session` }, h('span', { class: 'foot-num' }, formatTokens(usage.total)), ' tokens'),
     h('span', { class: 'foot-item model' }, modelLabel(usage.model || e.agent.model)));
 }
@@ -651,7 +666,7 @@ async function rpc(method, params) {
 /** @param {{prompt?: string}} [preset] e.g. the Library's "Try it" fills in "/skill-name " */
 function newAgent(preset = {}) {
   if (!S.spaces.length) { addSpace(); return; }
-  openNewAgentDialog({ spaces: S.spaces, entries: entriesArr(), spaceId: S.currentSpace, mod: MOD, prompt: preset.prompt }, async (p) => {
+  openNewAgentDialog({ spaces: S.spaces, entries: entriesArr(), spaceId: S.currentSpace, mod: MOD, prompt: preset.prompt, warning: limitWarning(ctx) }, async (p) => {
     /** @type {any} */
     const params = { spaceId: p.spaceId, name: p.name };
     if (p.prompt) params.prompt = p.prompt;

@@ -30,6 +30,7 @@ const { PROTOCOL_VERSION, ERRORS, ROLES, homeDir } = require('../../../../shared
 const { libraryMethods } = require('./mock-library.js');
 const { dashboardMethods } = require('./mock-dashboards.js');
 const { activityMethods } = require('./mock-activity.js');
+const { usageMethods } = require('./mock-usage.js');
 
 const roleOf = (/** @type {string} */ id) => ({ ...(ROLES.find((r) => r.id === id) || ROLES[1]) });
 /** Seeded roles: the oldest agent of each space is Main. */
@@ -171,10 +172,17 @@ function seed(opts) {
       defs.push(['big-project', name, 'claude-sonnet-4-5-20250929', { ...mix[(i - 1) % mix.length], updatedAt: now - i * 20e3, lastPrompt: `Task ${i}` }, `Task ${i}`]);
     }
   }
-  const usageFor = (/** @type {string} */ name, /** @type {string} */ model) => {
+  // v4: live agents report through the status line (exact window and %, cost); stopped ones keep the
+  // transcript estimate. Opus and Sonnet sessions here have the 1M window, Haiku 200k.
+  const usageFor = (/** @type {string} */ name, /** @type {string} */ model, /** @type {string} */ state) => {
     const h = [...name].reduce((x, ch) => (x * 31 + ch.charCodeAt(0)) >>> 0, 7);
     const pct = 8 + (h % 80);
-    return { total: 4000 + (h % 180000), context: Math.round(200000 * pct / 100), contextPct: pct, model: model || 'claude-sonnet-4-5-20250929' };
+    const contextWindow = /haiku/.test(model) ? 200_000 : 1_000_000;
+    const live = state !== 'stopped' && state !== 'exited';
+    return {
+      total: 4000 + (h % 180000), context: Math.round(contextWindow * pct / 100), contextPct: pct, model: model || 'claude-sonnet-4-5-20250929',
+      contextWindow, source: live ? 'statusline' : 'transcript', ...(live ? { costUsd: Math.round((h % 900) + 20) / 100 } : {}),
+    };
   };
   /** @type {Map<string, {agent:any, status:any, running:boolean, screen:string, line:string}>} */
   const agents = new Map();
@@ -183,7 +191,7 @@ function seed(opts) {
     const agent = { id: name, spaceId, name, cwd: space.path, sessionId: crypto.randomUUID(), model, effort: '', mode: mode || '', prompt: prompt || '', role: roleOf(SEED_ROLES[name] || 'worker'), createdAt: now - (defs.length - i) * 3600e3 };
     const status = {
       agentId: name, counts: { tools: 3 + i, turns: 1 + (i % 3), errors: 0, subagents: 0 }, files: [], history: [[st.updatedAt, st.state]],
-      usage: usageFor(name, model), ...st,
+      usage: usageFor(name, model, st.state), ...st,
     };
     const script = SCRIPTS[name];
     agents.set(name, { agent, status, running: !['stopped', 'exited'].includes(st.state), screen: script ? script(agent) : genericReplay(agent, status), line: '' });
@@ -193,7 +201,8 @@ function seed(opts) {
 
 /**
  * Start the mock core.
- * @param {{static?:boolean, empty?:boolean, many?:number, port?:number, home?:string, writeCoreJson?:boolean, tickMs?:number}} [opts]
+ * @param {{static?:boolean, empty?:boolean, many?:number, port?:number, home?:string, writeCoreJson?:boolean, tickMs?:number, usage?:'normal'|'high'|'none'}} [opts]
+ *   usage (v4): which account limits to seed (mock-usage.js)
  */
 async function startMockCore(opts = {}) {
   const home = opts.home || homeDir();
@@ -442,6 +451,9 @@ async function startMockCore(opts = {}) {
     },
   });
   Object.assign(methods, activity.methods);
+  // v4: account limits and cost totals (mock-usage.js)
+  const usage = usageMethods({ broadcast, state, usage: opts.usage });
+  Object.assign(methods, usage.methods);
 
   /**
    * Like the real core: a permission prompt must be waiting, and with promptId it must be the one
@@ -534,7 +546,7 @@ async function startMockCore(opts = {}) {
         const u = e.status.usage;
         const pct = Math.min(96, (u.contextPct || 0) + 0.7);
         output(e.agent.id, toolBlock(`${tool}(${detail})`, [`${c.muted}ok${c.reset}`]));
-        setStatus(e.agent.id, { tool, detail, usage: { ...u, total: u.total + 850, context: Math.round(2000 * pct), contextPct: pct } });
+        setStatus(e.agent.id, { tool, detail, usage: { ...u, total: u.total + 850, context: Math.round((u.contextWindow || 200_000) * pct / 100), contextPct: pct } });
       }
       // every few ticks, landing-copy asks for something, then gets going again
       const lc = state.agents.get('landing-copy');
@@ -543,6 +555,7 @@ async function startMockCore(opts = {}) {
         else if (lc.status.state === 'needs_you') setStatus('landing-copy', { state: 'working', tool: 'Edit', detail: 'pages/index.tsx' });
       }
       activity.step();
+      usage.step();
     }, opts.tickMs || 4000));
   }
 
@@ -556,7 +569,7 @@ async function startMockCore(opts = {}) {
   }
 
   return {
-    port, token, home, inputs, calls, presses, state, activity,
+    port, token, home, inputs, calls, presses, state, activity, usage,
     setStatus, output, broadcast,
     /** Close every client socket (simulates a core restart for reconnect tests). */
     dropClients() { for (const ws of sockets) ws.terminate(); },
@@ -582,6 +595,7 @@ if (require.main === module) {
     empty: process.env.MOCK_EMPTY === '1',
     many: Number(process.env.MOCK_MANY) || 0,
     port: process.env.MOCK_PORT ? Number(process.env.MOCK_PORT) : 0,
+    usage: /** @type {any} */ (process.env.MOCK_USAGE || undefined),
   }).then((mock) => {
     console.log(`mock core on 127.0.0.1:${mock.port} (core.json in ${mock.home})`);
     const quit = () => mock.close().then(() => process.exit(0));

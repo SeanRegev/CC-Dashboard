@@ -5,7 +5,7 @@
  *
  * @typedef {Object} ViewContext
  * @property {() => any} state              the app state S (read-only by convention): spaces, entries (Map), currentSpace, tabs, layout, view, conn,
- *                                          subagents (Map), external, activityFor (v3)
+ *                                          subagents (Map), external, activityFor (v3), usage (v4)
  * @property {import('./client.js').CoreClient} client
  * @property {(method: string, params?: any) => Promise<any>} rpc   client.call that shows a toast on failure and resolves undefined
  * @property {(id: string) => void} openAgent        show the agent in the Terminals view (tab + focused pane)
@@ -26,8 +26,9 @@
  * @property {(agentId: string, subagentId?: string) => void} openActivity  (v3) show that session's activity drawer (S.activityFor)
  * @property {() => void} closeActivity              (v3)
  * @property {(fn: (agentId: string, entries: any[]) => void) => () => void} onActivity  (v3) new activity lines; returns unsubscribe
+ * @property {() => any} usage                      (v4) the latest Usage (protocol.js), null until loaded; kept live by usage.changed
  *
- * @typedef {'terminals'|'grid'|'board'|'inbox'|'library'|'dashboards'} ViewName
+ * @typedef {'terminals'|'grid'|'board'|'inbox'|'library'|'dashboards'|'usage'} ViewName
  *
  * @typedef {Object} View
  * @property {HTMLElement} el
