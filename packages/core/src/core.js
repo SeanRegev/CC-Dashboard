@@ -746,6 +746,7 @@ class Core extends EventEmitter {
     const r = this.rt.get(agent.id);
     if (r && r.transcriptPath) this.usage.forget(r.transcriptPath);
     this.rt.delete(agent.id);
+    this.lastPermission.delete(agent.id);
     this.scrollbacks.delete(agent.id);
     this.sizes.delete(agent.id);
     const promoted = this.fixRoles();

@@ -99,7 +99,6 @@ function consume(cur, line) {
   t.replies += 1;
 }
 
-/** @param {Totals} t */
 /**
  * The context window to estimate with. Order: what the status line reported (for this agent, else for
  * this model id: `known`); else `[1m]` in the model name; else 1M when the context is already over 200k
