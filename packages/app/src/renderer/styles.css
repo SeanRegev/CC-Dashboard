@@ -538,7 +538,7 @@ kbd {
 .foot-num { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 550; }
 .foot-item.model { color: var(--text); font-weight: 550; padding: 2px 8px; border-radius: 6px; background: var(--tint-2); }
 .foot-item.mode { color: var(--accent); }
-.gauge-label { color: var(--faint); }
+.gauge-label { color: var(--muted); }
 .gauge-bar { width: 64px; height: 6px; border-radius: 6px; background: var(--tint-3); overflow: hidden; }
 .gauge-fill { display: block; height: 100%; border-radius: 6px; background: var(--idle); }
 .gauge-bar.lvl-mid .gauge-fill { background: var(--needs); }
