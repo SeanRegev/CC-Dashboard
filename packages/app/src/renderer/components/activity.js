@@ -11,7 +11,7 @@ import { h, mount } from '../dom.js';
 import { roleBadge } from '../roles.js';
 import {
   MAX_LINES, PAGE, typeInfo, subagentTitle, clip, formatDuration, subagentDuration, stateInfo, mergeEntries, filterEntries,
-  listParams, initialFilter, describeEntry, atBottom, badgeCount, stripModel, stripKey, windowOf,
+  listParams, initialFilter, describeEntry, atBottom, badgeCount, windowOf,
 } from './activity-logic.js';
 
 /** The drawer's data for the session it shows. @typedef {{agentId: string, filter: string|null, entries: any[], more: boolean, loaded: boolean, error: string, limit: number, following: boolean, unseen: number, pinOld: boolean}} Feed */
@@ -295,41 +295,6 @@ export function createActivityDrawer(ctx) {
   }
 
   return { el, update };
-}
-
-/**
- * The strip under a grid tile's header: chips for running subagents (emoji, title, current tool), "+N" more,
- * "✓ N" done, "✗ N" failed. A chip opens the drawer on that subagent. Re-renders only when it would look different.
- * @param {import('../context.js').ViewContext} ctx @param {HTMLElement} slot @param {string} agentId
- */
-export function renderSubagentStrip(ctx, slot, agentId) {
-  const subs = ctx.subagents(agentId);
-  const key = stripKey(subs);
-  if (slot.dataset.key === key) return;
-  slot.dataset.key = key;
-  const m = stripModel(subs);
-  slot.hidden = !subs.length;
-  if (!subs.length) { slot.replaceChildren(); return; }
-  /** @param {string} cls @param {string} text @param {string} tip @param {string} [sub] */
-  const pill = (cls, text, tip, sub) => h('button', {
-    class: `sub-pill ${cls}`, type: 'button', title: tip,
-    onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); ctx.openActivity(agentId, sub); },
-  }, text);
-  mount(slot,
-    ...m.chips.map((s) => {
-      const info = typeInfo(s.type);
-      return h('button', {
-        class: `sub-chip${s.needsYou ? ' needs' : ''}`, type: 'button', dataset: { sub: s.id },
-        title: `${info.label}: ${subagentTitle(s)}${s.tool ? ` — ${s.tool} ${s.detail || ''}` : ''}${s.needsYou ? ' (needs you)' : ''}`,
-        onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); ctx.openActivity(agentId, s.id); },
-      },
-      h('span', { class: 'sub-emoji', 'aria-hidden': 'true' }, info.emoji),
-      h('span', { class: 'sub-title' }, subagentTitle(s)),
-      s.needsYou ? h('span', { class: 'sub-tool' }, '◆ needs you') : s.tool ? h('span', { class: 'sub-tool' }, s.tool) : null);
-    }),
-    m.more ? pill('more', `+${m.more}`, `${m.more} more running`) : null,
-    m.done ? pill('done', `✓ ${m.done}`, `${m.done} finished`) : null,
-    m.failed ? pill('failed', `✗ ${m.failed}`, `${m.failed} failed`) : null);
 }
 
 /**
