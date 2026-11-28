@@ -48,7 +48,7 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 /**
  * @typedef {import('./types').Subagent} Subagent
  * @typedef {import('./types').ActivityEntry} ActivityEntry
- * @typedef {{toolUseId: string, title: string, type: string, background: boolean, at: number}} AgentCall
+ * @typedef {{toolUseId: string, title: string, type: string, background: boolean, at: number, model?: string}} AgentCall
  *          one Agent / Task tool call, from its PreToolUse
  * @typedef {{src: 'call'|'meta'|'tasks'|'fallback', callId?: string, tries?: number}} TitleInfo
  * @typedef {{entries: ActivityEntry[], changed: Set<string>, urgent: boolean, internal?: boolean}} ApplyResult  internal: a hidden Claude helper (ignored)
@@ -348,6 +348,8 @@ class SessionLog {
       id, agentId: this.agentId, title, type, state: 'running', background,
       tool: '', detail: '', needsYou: false, counts: { tools: 0, errors: 0 }, startedAt: now, updatedAt: now,
     };
+    const model = this.modelFor(id, p, info);
+    if (model) sub.model = model;
     this.subagents.set(id, sub);
     this.titles.set(id, info);
     out.changed.add(id);
@@ -388,6 +390,20 @@ class SessionLog {
   }
 
   /**
+   * (M4) The model a new subagent runs on: its meta.json "model", else its Agent call's tool_input.model, else ''.
+   * @param {string} id @param {any} p @param {TitleInfo} info
+   */
+  modelFor(id, p, info) {
+    const file = metaPath(str(p.transcript_path), str(p.session_id), id);
+    let m = null;
+    try { m = file ? this.readMeta(file) : null; } catch { m = null; }
+    const fromMeta = m && typeof m === 'object' ? clip(str(m.model).trim(), 80) : '';
+    if (fromMeta) return fromMeta;
+    const call = info.callId ? this.calls.get(info.callId) : undefined;
+    return (call && call.model) || '';
+  }
+
+  /**
    * Read a subagent's meta.json. @param {string} id @param {any} p
    * @returns {{title: string, background: boolean}|null}
    */
@@ -414,6 +430,8 @@ class SessionLog {
     if (!m) return;
     sub.title = m.title;
     if (m.background) sub.background = true;
+    const model = this.modelFor(sub.id, p, { src: 'meta' });
+    if (model) sub.model = model;
     this.titles.set(sub.id, { src: 'meta' });
     out.changed.add(sub.id);
   }
@@ -428,6 +446,7 @@ class SessionLog {
       type: str(ti.subagent_type) || 'general-purpose',
       background: ti.run_in_background === true,
       at: now,
+      ...(str(ti.model).trim() ? { model: clip(str(ti.model).trim(), 80) } : {}),
     };
     this.queue.push(call);
     if (this.queue.length > MAX_QUEUE) this.queue.shift();
@@ -480,6 +499,7 @@ class SessionLog {
     for (const s of this.subagents.values()) if (s !== sub && this.titles.get(s.id)?.callId === call.toolUseId) other = s;
     const old = info && info.src === 'call' && info.callId ? this.calls.get(info.callId) : undefined;
     sub.title = call.title || sub.title;
+    if (call.model && !sub.model) sub.model = call.model;
     if (call.background) sub.background = true;
     this.titles.set(sub.id, { src: 'call', callId: call.toolUseId });
     out.changed.add(sub.id);

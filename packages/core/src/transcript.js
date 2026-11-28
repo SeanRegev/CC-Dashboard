@@ -26,7 +26,7 @@ const AGENT_TOOLS = new Set(['Agent', 'Task']);
  * @typedef {Omit<ActivityEntry, 'seq'>} RawEntry
  * @typedef {{
  *   pending: Map<string, {tool: string, detail: string, at: number}>,
- *   agentCalls: Map<string, {description: string, type: string, background: boolean}>,
+ *   agentCalls: Map<string, {description: string, type: string, background: boolean, model?: string}>,
  *   agentIds: Map<string, string>,
  *   notifications: Array<{taskId: string, toolUseId: string, status: string, summary: string, at: number}>,
  *   lastText: string,
@@ -153,6 +153,7 @@ function parseLine(obj, st, opts = {}) {
             description: oneLine(typeof input.description === 'string' ? input.description : '', MAX_TEXT),
             type: typeof input.subagent_type === 'string' ? input.subagent_type : '',
             background: input.run_in_background === true,
+            ...(typeof input.model === 'string' && input.model.trim() ? { model: input.model.trim().slice(0, 80) } : {}),
           });
         }
         st.lastTool = { tool, detail };
@@ -289,7 +290,7 @@ class TranscriptTail {
 /**
  * A subagent's meta file (<sessionId>/subagents/agent-<id>.meta.json), read defensively.
  * @param {any} meta
- * @returns {{type: string, description: string, toolUseId: string, background: boolean, finished: boolean}|null}
+ * @returns {{type: string, description: string, toolUseId: string, background: boolean, finished: boolean, model: string}|null}
  */
 function parseMeta(meta) {
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
@@ -299,6 +300,7 @@ function parseMeta(meta) {
     toolUseId: typeof meta.toolUseId === 'string' ? meta.toolUseId : '',
     background: meta.requestShape === 'background',
     finished: meta.finished === true,
+    model: typeof meta.model === 'string' ? meta.model.trim().slice(0, 80) : '',
   };
 }
 

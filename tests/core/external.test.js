@@ -90,7 +90,7 @@ test('an outside session is listed with its state, space and transcript activity
 
   // A subagent appears: subagent.updated, and the session counts it.
   fs.mkdirSync(subDir, { recursive: true });
-  fs.writeFileSync(path.join(subDir, 'agent-ab12.meta.json'), JSON.stringify({ agentType: 'Explore', description: 'Find token call sites', requestShape: 'background' }));
+  fs.writeFileSync(path.join(subDir, 'agent-ab12.meta.json'), JSON.stringify({ agentType: 'Explore', description: 'Find token call sites', requestShape: 'background', model: 'claude-haiku-4-5-20251001' }));
   fs.writeFileSync(path.join(subDir, 'agent-ab12.jsonl'), JSON.stringify({ type: 'assistant', isSidechain: true, agentId: 'ab12', timestamp: new Date().toISOString(),
     message: { content: [{ type: 'tool_use', id: 'toolu_g', name: 'Grep', input: { pattern: 'token' } }] } }) + '\n');
   const up = await waitFor(() => subUpdates.find((u) => u.agentId === s.id && u.subagent.id === 'ab12' && u.subagent.tool === 'Grep'), { what: 'subagent.updated' });
@@ -98,6 +98,7 @@ test('an outside session is listed with its state, space and transcript activity
   assert.equal(up.subagent.type, 'Explore');
   assert.equal(up.subagent.state, 'running');
   assert.equal(up.subagent.background, true);
+  assert.equal(up.subagent.model, 'claude-haiku-4-5-20251001', 'M4: the model from meta.json');
   assert.equal(up.subagent.detail, 'token');
   await waitFor(() => changed.some((c) => c.sessions.some((x) => x.id === s.id && x.subagents.running === 1 && x.subagents.total === 1)), { what: 'subagent count' });
   const subs = await core.client.call('subagents.list', { agentId: s.id });
