@@ -29,6 +29,7 @@ Every agent is a real `claude` process in a real terminal; CC-Dashboard never re
 | Orchestration | `packages/core/src/orchestrate` (tasks, routing, worktrees, verification) | Orchestration (milestone 3) |
 | Insight | `packages/core/src/insight` (usage, loadout, timeline) | Insight (milestone 3) |
 | Activity and outside sessions | `packages/core/src/activity.js`, `external.js`, `transcript.js` | Core (milestone 3, 0.3) |
+| Status line and usage | `packages/core/src/statusline.js`, `statusline-relay.js`, `usage.js` | Core (milestone 4, 0.4) |
 | Tests, CI, installers | `tests/`, `.github/workflows`, `electron-builder.yml` | QA & Release |
 
 ## Decisions
@@ -77,8 +78,61 @@ folder. The activity log carries over.
 `AgentStatus.subagents` and `askedBy`. Error code `still_working`. Hook `SubagentStart`. Types: `Subagent`,
 `ActivityEntry`, `ExternalSession`.
 
+## Status line and usage (0.4)
+
+Claude Code's status line gives the exact numbers: the context window, the context used, the cost, and the account's
+rate limits. CC-Dashboard reads them from there instead of estimating them from the transcript.
+
+**The relay.** Each agent starts with `--settings <hooks file>`, which sets `statusLine` to a launcher in
+`<CC_HOME>` (`cc-statusline.cmd` on Windows, `cc-statusline.sh` elsewhere; same quoting as `cc-hook`). Claude runs that
+launcher on each update with the session's JSON on stdin. The launcher runs `statusline-relay.js` with
+`ELECTRON_RUN_AS_NODE=1`, and the relay does two things:
+
+1. It POSTs the JSON to `${CC_CORE_URL}/statusline?agent=${CC_AGENT_ID}` with the `x-cc-token` header. It waits at most
+   2 s, and errors are ignored.
+2. It prints the status line. If the user has their own, the relay runs it and prints its output unchanged. If not, it
+   prints a short default such as `Haiku 5.5 · ctx 10% · 5h 62%`.
+
+When the core starts an agent, `statusline.js` `prepare()` finds the user's own `statusLine` the way Claude would
+without our settings. It looks in `<cwd>/.claude/settings.local.json`, then `<cwd>/.claude/settings.json`, then
+`<CLAUDE_CONFIG_DIR or ~/.claude>/settings.json`, and uses the first file that has one. Only `type: "command"` can run.
+The core passes the result to the relay in `CC_STATUSLINE` (JSON: the command and the shell, plus a timeout), so the
+relay does no searching. Claude runs status-line commands through **Git Bash** on Windows when it finds one (via
+`CLAUDE_CODE_GIT_BASH_PATH`, the usual install folders, or Git's own `bin`), and through PowerShell otherwise. The
+relay does the same. The relay prints nothing else and always exits 0, unless the user's command failed. A dead or
+slow core never delays the line.
+
+**The core side.** `core.handleStatusLine(id, payload)` hands the snapshot to `StatusLine.handle()`. For each agent it
+keeps the latest snapshot and applies at most one per second (`THROTTLE_MS`). The last one always lands, because the
+throttle is trailing. An unknown agent gets a 404.
+
+- `AgentStatus.usage` (`source: 'statusline'`): `contextWindow` = `context_window_size`; `contextPct` =
+  `used_percentage` when it is a number; `context` = the input-side tokens of `current_usage`; `costUsd` =
+  `cost.total_cost_usd`; `model` = `model.id`. Before the first reply `used_percentage` is `null`, so the transcript
+  estimate is kept and only the window comes from the status line. `total` keeps its old meaning: input, output and
+  cache writes.
+- **Account limits** (`Usage.limits`): taken from the freshest update that has `rate_limits`. The reset time is
+  `resets_at` × 1000, because Claude sends seconds. `fromAgentId` names the agent that reported them.
+- **Totals** (`byAgent`, `bySpace`, `byDay`): from **deltas** of `total_cost_usd`, `total_input_tokens` and
+  `total_output_tokens` between updates of the same session. A value that goes down (a new process, `--resume`) starts
+  a new baseline, so nothing is counted twice. `byDay` uses the local date.
+- **Saving:** `<CC_HOME>/usage.json` (written atomically, debounced at 1 s, and flushed on shutdown). It holds
+  `byAgent` (with names and space ids, so removed agents still read well), `bySpace`, `byDay` (about 90 days), the last
+  limits, and the window last seen for each model id. `usage.changed` is broadcast at most once a second.
+
+**The transcript fallback.** `usage.js` is used before the first update and for agents without a status line
+(`source: 'transcript'`). It never assumes 200k when the window is known. The window is the first of these that exists:
+the last status-line window for this agent; the window last seen for this model id (from `usage.json`); 1M if the
+model id contains `[1m]`; 1M if the context is already over 200k; otherwise 200k.
+
+**Contract v4 (`packages/shared/protocol.js`).** `AgentStatus.usage` (`AgentUsage`), `Subagent.model`, the `Usage` and
+`UsageTotals` types. Method `usage.get`. Event `usage.changed`. HTTP `POST /statusline?agent=<id>` with the same token
+rules as `/hook`: 200 `{ok: true}`, or 404 for an unknown agent.
+
 ## Milestones
 
 1. **It runs:** core + window + sidebar + one real Claude you type into; Windows installer from CI.
 2. **The look:** spaces, tabs, split panes, needs-you, allow/deny, notifications, themes, Board layout.
 3. **The brains:** tasks and ◆1–◆5 routing, worktrees, verification gate (fresh reviewer + tests), loadout, usage.
+4. **Real numbers:** exact context % from the status line, the account usage meter and Usage view, subagent cards,
+   0.3 follow-ups, and an indexer trial (`docs/INDEXER.md`, adopt as opt-in, do not build yet).
