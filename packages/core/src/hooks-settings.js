@@ -52,13 +52,14 @@ function launcherText(execPath, script, platform = process.platform) {
 }
 
 /**
- * The statusLine command line, for the shell Claude will run it with.
+ * The command line that runs a launcher (status line or hook), for the shell Claude will run it with.
  * @param {string} launcher @param {'bash'|'powershell'} [shell]
  */
 function statusLineCommand(launcher, shell = 'bash') {
   const p = slashes(launcher);
   // PowerShell reads a bare quoted string as a value to print, not a command: call it with &.
-  return shell === 'powershell' ? `& '${p.replace(/'/g, "''")}'` : `"${p}"`;
+  // In bash double quotes $, ` and " are still special (a folder called $HOME would expand).
+  return shell === 'powershell' ? `& '${p.replace(/'/g, "''")}'` : `"${p.replace(/(["$`\\])/g, '\\$1')}"`;
 }
 
 /**
@@ -72,7 +73,7 @@ function buildSettings(launcher, opts = {}) {
   const hooks = {};
   for (const event of HOOK_EVENTS) {
     /** @type {any} */
-    const entry = { hooks: [{ type: 'command', command: `"${slashes(launcher)}" ${event}`, timeout: 10 }] };
+    const entry = { hooks: [{ type: 'command', command: `${statusLineCommand(launcher, opts.shell)} ${event}`, timeout: 10 }] };
     if (TOOL_EVENTS.has(event)) entry.matcher = '';
     hooks[event] = [entry];
   }
