@@ -52,8 +52,17 @@ function main() {
     '--no-session-persistence', '--setting-sources', 'project,local', '--strict-mcp-config', '--mcp-config', mcp,
     '--allowedTools', ...ALLOW[arm], '--disallowedTools', ...DENY, '--max-budget-usd', '0.50'];
   const bin = process.env.CC_CLAUDE || 'claude';
+  // Explicit env: drop the parent session's markers and any inherited API key, so the run is a plain top-level
+  // claude on the user's own CLI login (an inherited key can be stale: the first trial run got a 401).
+  /** @type {NodeJS.ProcessEnv} */
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_') || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT') continue;
+    if (k === 'ANTHROPIC_API_KEY' && !process.env.INDEX_TRIAL_KEEP_KEY) continue;
+    env[k] = v;
+  }
   const file = fs.openSync(out, 'w');
-  const child = spawn(bin, args, { cwd: repo, stdio: ['ignore', file, 'inherit'], windowsHide: true });
+  const child = spawn(bin, args, { cwd: repo, env, stdio: ['ignore', file, 'inherit'], windowsHide: true });
   const timer = setTimeout(() => { process.stderr.write('timeout: killing run\n'); child.kill(); }, 10 * 60 * 1000);
   child.on('exit', (code) => {
     clearTimeout(timer);
