@@ -557,6 +557,9 @@ class External {
       Object.assign(sub, { type, title, background });
       changed = true;
     }
+    // M4: the model, from meta.json, else the Agent call's tool_input.model
+    const model = (sr.meta && sr.meta.model) || (call && call.model) || '';
+    if (model && model !== sub.model) { sub.model = model; changed = true; }
     if (!sub.startedAt) sub.startedAt = metaMtime || now;
     if (!sr.announced) {
       sr.announced = true;

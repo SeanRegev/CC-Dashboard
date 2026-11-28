@@ -1,1 +1,67 @@
-/* Subagent cards (M4 track C). */
+/* Subagent cards (M4 track C). Colours are tokens only, so both themes work. */
+
+/* ---------- one card ---------- */
+.sub-card {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0; box-sizing: border-box; text-align: left;
+  padding: 2px 8px; border-radius: 8px; border: 1px solid var(--line-soft); background: var(--card);
+  color: var(--text); font: inherit; font-size: 11.5px; line-height: 1.25; cursor: pointer; overflow: hidden;
+}
+.sub-card:hover { background: var(--card-hi); border-color: var(--line); }
+.sub-card:focus-visible, .sub-pill:focus-visible, .sub-group-head:focus-visible, .sub-done-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sub-card.needs { border-color: rgba(var(--needs-rgb), .6); background: rgba(var(--needs-rgb), .14); }
+.sub-card.st-failed { border-color: rgba(var(--danger-rgb, 200, 60, 60), .45); }
+.sub-card-top { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.sub-card-state { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; font-size: 11px; color: var(--muted); }
+.sub-card-state.st-done { color: var(--working); }
+.sub-card-state.st-failed { color: var(--danger-text); }
+.sub-card-emoji { flex: none; font-size: 11px; }
+.sub-card-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.sub-card-meta { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 17px; color: var(--muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; }
+.sub-card-model { flex: none; color: var(--muted); }
+.sub-card-tool { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--mono); color: var(--muted); }
+.sub-card-tool.is-needs { color: var(--needs-ink); font-weight: 650; font-family: inherit; }
+.sub-card-time { flex: none; margin-left: auto; padding-left: 4px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.sub-pill {
+  flex: none; display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px;
+  border: 1px solid var(--line-soft); background: var(--card); font: inherit; font-size: 11.5px; cursor: pointer; white-space: nowrap;
+}
+.sub-pill.done { color: var(--working); }
+.sub-pill:hover { background: var(--card-hi); border-color: var(--line); }
+
+/* ---------- grid tile: a row under the header (replaces the M3 chips) ---------- */
+.tile-subs {
+  flex: none; display: flex; align-items: stretch; gap: 5px; padding: 3px 8px; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  border-bottom: 1px solid var(--line-soft); background: var(--tint-1); scrollbar-width: thin;
+}
+.tile-subs[hidden] { display: none; }
+.sub-row { display: flex; align-items: stretch; gap: 5px; min-width: 0; }
+.sub-row.in-grid .sub-card { flex: 0 0 auto; width: 190px; }
+.sub-row.in-grid .sub-pill { align-self: center; }
+
+/* ---------- Terminals pane: a single line under the pane header ---------- */
+.pane-sub:empty { display: none; }
+.pane-sub { flex: none; padding: 4px 10px; border-bottom: 1px solid var(--line-soft); background: var(--tint-1); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.sub-row.in-pane { align-items: center; }
+.sub-row.in-pane .sub-card { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 8px; max-width: 320px; padding: 2px 9px; }
+.sub-row.in-pane .sub-card-meta { padding-left: 0; overflow: hidden; }
+
+/* ---------- sidebar: indented child cards under a session ---------- */
+.agent-list > li:has(> .sub-group) { display: flex; flex-direction: column; gap: 2px; }
+.sub-group { margin: 0 0 4px 14px; padding-left: 8px; border-left: 2px solid var(--line-soft); min-width: 0; }
+.sub-group-head {
+  display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; padding: 2px 4px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; text-align: left;
+}
+.sub-group-head:hover { background: var(--tint-1); }
+.sub-group-head.needs .sub-group-sum { color: var(--needs-ink); font-weight: 650; }
+.sub-chev { flex: none; width: 10px; }
+.sub-group-title { flex: none; font-weight: 600; color: var(--text); }
+.sub-group-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.sub-list > li { min-width: 0; }
+.sub-group .sub-card { width: 100%; }
+.sub-done-toggle {
+  display: block; width: 100%; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--working);
+  font: inherit; font-size: 11px; text-align: left; cursor: pointer;
+}
+.sub-done-toggle:hover { background: var(--tint-1); }

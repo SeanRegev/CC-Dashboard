@@ -98,6 +98,8 @@ function onLine(line) {
 
 const SUB_TITLES = ['Count files here', 'Find token call sites', 'Plan the retry fix'];
 const SUB_TYPES = ['general-purpose', 'Explore', 'Plan'];
+// M4: the model each fake subagent's meta.json names (index order)
+const SUB_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-5', 'claude-opus-4-1'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let subRun = 0;
 
@@ -118,7 +120,7 @@ async function runSubagents(text) {
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(path.join(subDir, `agent-${s.id}.meta.json`), JSON.stringify({
       agentType: s.type, isBuiltIn: true, description: s.title, toolUseId: s.toolUseId, spawnDepth: 1,
-      requestShape: bg ? 'background' : 'foreground', model: 'fake-model', finished,
+      requestShape: bg ? 'background' : 'foreground', model: SUB_MODELS[subs.indexOf(s) % SUB_MODELS.length], finished,
     }));
   };
   const agentInput = (s) => ({ description: s.title, prompt: `Do this: ${s.title}`, subagent_type: s.type });

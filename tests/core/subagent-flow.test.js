@@ -100,6 +100,7 @@ test('titles from meta.json when Claude sent no Agent call', async (t) => {
   const [sub] = await subs(core, agent.id);
   assert.equal(sub.title, 'Count files here');
   assert.equal(sub.state, 'done');
+  assert.equal(sub.model, 'claude-haiku-4-5-20251001', 'M4: the model fake-claude wrote into meta.json');
   assert.ok(fs.existsSync(path.join(core.home, agent.sessionId, 'subagents', `agent-${sub.id}.meta.json`)));
 });
 

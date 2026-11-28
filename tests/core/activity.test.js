@@ -334,3 +334,37 @@ test('a session that starts thousands of subagents keeps a bounded list: the old
   assert.ok(log.subagents.has(`a${n - 1}`), 'the newest is kept');
   assert.ok(!log.subagents.has('a0'), 'the oldest finished one is gone');
 });
+
+// ---- M4: Subagent.model ----
+
+const metaOpts = (model) => ({ readMeta: () => ({ agentType: 'Explore', description: 'From meta', ...(model ? { model } : {}) }) });
+const metaStart = (id) => ['SubagentStart', { agent_id: id, agent_type: 'Explore', transcript_path: path.join('x', 'projects', 'p', 'sess.jsonl'), session_id: 'sess' }];
+
+test('model: the Agent call\'s tool_input.model when there is no meta.json', () => {
+  const log = new SessionLog('a', { readMeta: () => null });
+  feed(log, [agentPre('t1', 'Find it', 'Explore', { model: 'haiku' }), start('s1', 'Explore')]);
+  assert.equal(log.get('s1').model, 'haiku');
+});
+
+test('model: meta.json wins over the Agent call', () => {
+  const log = new SessionLog('a', metaOpts('claude-haiku-4-5-20251001'));
+  feed(log, [agentPre('t1', 'Find it', 'Explore', { model: 'opus' }), metaStart('s1')]);
+  assert.equal(log.get('s1').model, 'claude-haiku-4-5-20251001');
+});
+
+test('model: left out when neither names one', () => {
+  const log = new SessionLog('a', metaOpts(''));
+  feed(log, [agentPre('t1', 'Find it', 'Explore'), metaStart('s1')]);
+  assert.equal('model' in log.get('s1'), false);
+});
+
+test('model: a meta.json that shows up later (title retry) sets it', () => {
+  let meta = null;
+  const log = new SessionLog('a', { readMeta: () => meta });
+  feed(log, [metaStart('s1')]);
+  assert.equal(log.get('s1').model, undefined);
+  meta = { agentType: 'Explore', description: 'Late title', model: 'claude-sonnet-4-5' };
+  feed(log, [['PreToolUse', { agent_id: 's1', tool_name: 'Read', tool_use_id: 'r1', tool_input: {}, transcript_path: path.join('x', 'projects', 'p', 'sess.jsonl'), session_id: 'sess' }]]);
+  assert.equal(log.get('s1').title, 'Late title');
+  assert.equal(log.get('s1').model, 'claude-sonnet-4-5');
+});

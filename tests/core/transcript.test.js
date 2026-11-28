@@ -150,8 +150,18 @@ test('TranscriptTail: a huge file is read from near its end; a multi-byte charac
 
 test('parseMeta: fixture, defaults, junk', () => {
   const meta = JSON.parse(fs.readFileSync(path.join(SESSIONS, 'subagents-meta', 'agent-ae0d14e7ad2db2bf5.meta.json'), 'utf8'));
-  assert.deepEqual(T.parseMeta(meta), { type: 'general-purpose', description: 'Count files here', toolUseId: 'toolu_01PuLytW4FeEwpS7LGCzihRc', background: true, finished: true });
-  assert.deepEqual(T.parseMeta({ agentType: 5 }), { type: '', description: '', toolUseId: '', background: false, finished: false });
+  assert.deepEqual(T.parseMeta(meta), { type: 'general-purpose', description: 'Count files here', toolUseId: 'toolu_01PuLytW4FeEwpS7LGCzihRc', background: true, finished: true, model: 'fake-model' });
+  assert.deepEqual(T.parseMeta({ agentType: 5 }), { type: '', description: '', toolUseId: '', background: false, finished: false, model: '' });
   assert.equal(T.parseMeta(null), null);
   assert.equal(T.parseMeta([1]), null);
+});
+
+test('an Agent call keeps tool_input.model for the subagent model (M4)', () => {
+  const st = T.newParseState();
+  const line = (input) => ({ type: 'assistant', timestamp: '2026-11-26T12:00:00Z', message: { content: [{ type: 'tool_use', id: 'toolu_m', name: 'Agent', input }] } });
+  T.parseLine(line({ description: 'd', subagent_type: 'Explore', model: ' haiku ' }), st);
+  assert.equal(st.agentCalls.get('toolu_m').model, 'haiku');
+  const st2 = T.newParseState();
+  T.parseLine(line({ description: 'd', subagent_type: 'Explore' }), st2);
+  assert.equal('model' in st2.agentCalls.get('toolu_m'), false);
 });

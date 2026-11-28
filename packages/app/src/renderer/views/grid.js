@@ -15,7 +15,7 @@ import { gridOrder, describeActivity, cardTime, stateLabel, contextPercent, gaug
 import { roleBadge, roleOf } from '../roles.js';
 import { approvalButtons } from '../components/approval.js';
 import { attachAgentMenu } from '../components/agent-menu.js';
-import { renderSubagentStrip } from '../components/activity.js';
+import { renderGridSubagents } from '../components/subagent-cards.js';
 import { createExternalTiles, externalOfSpace } from '../components/external.js';
 
 const SNAPSHOT_LINES = 60;
@@ -216,7 +216,7 @@ export function createGridView(ctx) {
     t.gaugeFill.style.width = `${pct}%`;
     t.gaugeBar.className = `gauge-bar lvl-${gaugeLevel(pct)}`;
     t.gaugePct.textContent = `${pct}%`;
-    renderSubagentStrip(ctx, t.subsSlot, t.id); // M3 Activity UI
+    renderGridSubagents(ctx, t.subsSlot, t.id); // M4 subagent cards (replaces the M3 chip strip)
   }
 
   function markFocus() {

@@ -15,6 +15,7 @@
 import { h, mount, icon } from '../dom.js';
 import { formatRelativeTime } from '../logic.js';
 import { openModal } from '../dialogs.js';
+import { sidebarSubagents } from './subagent-cards.js';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Pure helpers
@@ -572,7 +573,7 @@ export function outsideBlock(ctx, sessions, key) {
   h('span', { class: 'ext-block-title' }, `Outside the app (${sessions.length})`));
   return h('div', { class: `ext-block${collapsed ? ' collapsed' : ''}`, dataset: { block: key } },
     head,
-    collapsed ? null : h('ul', { class: 'ext-block-list' }, sessions.map((x) => h('li', null, externalCard(ctx, x)))));
+    collapsed ? null : h('ul', { class: 'ext-block-list' }, sessions.map((x) => h('li', null, externalCard(ctx, x), sidebarSubagents(ctx, x.id)))));
 }
 
 /**
