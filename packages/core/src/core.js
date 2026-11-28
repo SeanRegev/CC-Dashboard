@@ -116,6 +116,8 @@ class Core extends EventEmitter {
     this.statusline = new StatusLine(this); // v4: status-line relay -> usage (track A)
     /** @type {Map<string, NodeJS.Timeout>} pending screen reads for status.prompt */
     this.promptTimers = new Map();
+    /** @type {Map<string, {at: number, tool: string, input: any}>} last PermissionRequest per agent */
+    this.lastPermission = new Map();
   }
 
   /** Load saved state. Agents whose process is gone (all of them, after a restart) become stopped. */
@@ -238,6 +240,7 @@ class Core extends EventEmitter {
       const out = applyEvent(s, r, event, payload, Date.now(), ctx);
       out.rt.stuck = false;
       if (event === 'Stop') out.rt.turnStartedAt = 0;
+      if (event === 'PermissionRequest') this.rememberPermission(id, out.rt.permAt, payload);
       const u = out.rt.transcriptPath ? this.usage.read(out.rt.transcriptPath) : null;
       if (u) out.status.usage = u;
       // Keep the turn start for alert(), which reads it from the "before" runtime.
@@ -308,7 +311,27 @@ class Core extends EventEmitter {
     if (!Core.permissionStatus(s)) return null;
     const term = this.terms.get(id);
     if (!term || !term.running) return null;
-    return parsePrompt(term.screenText(), { salt: `${id}:${(r && r.permAt) || 0}` });
+    return parsePrompt(term.screenText(), { salt: `${id}:${(r && r.permAt) || 0}`, fallback: this.hookPromptFallback(id, r) });
+  }
+
+  /** Keep the last PermissionRequest payload (see hookPromptFallback). @param {string} id @param {number} at @param {any} payload */
+  rememberPermission(id, at, payload) {
+    const p = payload && typeof payload === 'object' ? payload : {};
+    this.lastPermission.set(id, { at, tool: String(p.tool_name || ''), input: p.tool_input });
+  }
+
+  /**
+   * Tool and detail from the last PermissionRequest hook, for a screen whose header scrolled away.
+   * Only while that request is the current one (r.permAt).
+   * @param {string} id @param {Runtime} r @returns {{tool: string, detail: string}|undefined}
+   */
+  hookPromptFallback(id, r) {
+    const h = this.lastPermission.get(id);
+    if (!h || !r || h.at !== r.permAt || !h.tool) return undefined;
+    const ti = h.input && typeof h.input === 'object' ? h.input : {};
+    const key = ['command', 'file_path', 'notebook_path', 'url'].find((k) => typeof ti[k] === 'string' && ti[k]);
+    const detail = key ? ti[key] : '';
+    return detail ? { tool: h.tool, detail: String(detail).slice(0, 2000) } : undefined;
   }
 
   /** s with prompt (and permission) set from the screen, or prompt removed. Returns s itself when nothing changes. */
